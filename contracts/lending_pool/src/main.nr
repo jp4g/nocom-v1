@@ -1,0 +1,440 @@
+// mod asset;
+// mod position;
+// mod interest_math;
+// mod helpers;
+mod lib;
+mod types;
+
+
+
+use dep::aztec::macros::aztec;
+
+#[aztec]
+pub contract NocomLendingPoolV1 {
+    use aztec::{
+        context::PrivateContext,
+        protocol_types::address::AztecAddress,
+        state_vars::{Map, PrivateSet, PublicImmutable, PublicMutable, PrivateMutable},
+        macros::{
+            functions::{initializer, internal, external, view},
+            storage::storage,
+        },
+        messages::message_delivery::MessageDelivery,
+        protocol_types::{
+            traits::{FromField, ToField},
+            constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL
+        },
+        note::{retrieved_note::RetrievedNote, note_getter_options::NoteGetterOptions}
+    };
+
+    use crate::{
+        types::{
+            config::Config,
+            deposit_receipt_note::DepositReceiptNote,
+            utilization::Utilization
+        },
+        lib::{time, math}
+    };
+    use nocom_escrow::NocomEscrowV1;
+    use token_contract::Token;
+
+    // use crate::asset::Asset;
+    // use crate::helpers::{compute_identifier, covered_by_collateral, debt_updates, debt_value};
+    // use crate::interest_math::compute_multiplier;
+    // use crate::position::Position;
+    // use dep::price_feed::PriceFeed;
+
+    // use dep::aztec::
+    // use dep::aztec::
+
+    pub global EPOCH_LENGTH: u64 = 300; // 5 minutes per epoch 
+
+    // predetermined interest rate per epoch (approx 4% APR)
+    pub global FIXED_LEND_RATE_PER_EPOCH: u128 = 1_000_000_746_822_095_197_583_024;
+
+
+    // Storage structure, containing all storage, and specifying what slots they use.
+    #[storage]
+    struct Storage<Context> {
+        config: PublicImmutable<Config, Context>,
+        receipts: Map<AztecAddress, PrivateMutable<DepositReceiptNote, Context>, Context>,
+        utilization: Map<AztecAddress, PublicMutable<Utilization, Context>, Context>
+    //     // collateral_asset: PublicMutable<AztecAddress, Context>,
+    //     // stable_coin: PublicMutable<AztecAddress, Context>,
+    //     // assets: Map<Field, PublicMutable<Asset, Context>, Context>,
+    //     // collateral: Map<AztecAddress, PublicMutable<u128, Context>, Context>,
+    //     // static_debt: Map<AztecAddress, PublicMutable<u128, Context>, Context>, // abusing keys very heavily
+    }
+
+    // Constructs the contract.
+    #[external("private")]
+    #[initializer]
+    fn constructor() { }
+
+    #[external("public")]
+    fn init(
+        oracle: AztecAddress,
+        asset_token: AztecAddress,
+        receipt_token: AztecAddress,
+        stable_token: AztecAddress,
+        loan_to_value: u128,
+    ) {
+        // 1. initialize config
+        let config = Config {
+            admin: context.msg_sender().unwrap(),
+            oracle_address: oracle,
+            asset_token_address: asset_token,
+            receipt_token_address: receipt_token,
+            stable_token_address: stable_token,
+            ltv: loan_to_value,
+        };
+        storage.config.initialize(config);
+
+        // 2. initialize single asset utilization
+        // todo: is this necessary?
+        storage.utilization.at(asset_token).write(Utilization::new(0, 0));
+    }
+
+    #[external("private")]
+    fn deposit_private(
+        amount: u128,
+        depositor: AztecAddress
+    ) {
+        // 1. get the config
+        let config = storage.config.read();
+
+        // 2. determine if there is an existing deposit receipt
+        let (amount_existing, current_epoch) = _combine_deposit_receipts(
+            depositor,
+            &mut context,
+            storage.receipts,
+        );
+        // 3. Add (or update) deposit receipt note
+        let receipt_note = DepositReceiptNote::new(
+            depositor,
+            amount_existing + amount,
+            current_epoch + 1, // start accumulating next epoch
+        );
+        // todo: handle initialization
+        storage.receipts.at(depositor).initialize_or_replace(|_| { receipt_note }).emit(
+            depositor,
+            MessageDelivery.CONSTRAINED_ONCHAIN
+        );
+
+        // 4. pull in tokens
+        NocomEscrowV1::at(depositor)
+            .deposit_collateral_callback(amount, config.asset_token_address)
+            .call(&mut context);
+
+        // 5. update utilization
+        NocomLendingPoolV1::at(context.this_address())
+            ._update_utilization(0, amount, config.asset_token_address)
+            .enqueue(&mut context); 
+    }
+
+    /**
+     *
+     * @return (amount, next_epoch)
+     */
+    #[contract_library_method]
+    fn _combine_deposit_receipts(
+        depositor: AztecAddress,
+        context: &mut PrivateContext,
+        receipt_storage: Map<AztecAddress, PrivateMutable<DepositReceiptNote, &mut PrivateContext>, &mut PrivateContext>,
+    ) -> (u128, u64) {
+        // 1. Get the current epoch & enforce delivery
+        let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
+        // 2. check if there is an existing deposit receipt
+        // todo: need to check if note exists first and also replace this after getting it
+        let current_receipt_emission = receipt_storage.at(depositor).get_note();
+        let current_receipt = current_receipt_emission.content.note;
+        // 3. If no existing receipt, return 0
+        if current_receipt.epoch == 0 {
+            (0, current_epoch)
+        } else {
+            // 4. calculate the amount of accrued interest
+            // note: hardcoded 4% rate of interest for now
+            let interest = math::InterestCalculator::new(4)
+            .calculate_accrued_interest(
+                current_receipt.deposit_amount,
+                current_receipt.epoch,
+                current_epoch
+            );
+            let total = current_receipt.deposit_amount + interest;
+            (total, current_epoch)
+        }
+        
+    }
+
+
+    #[external("public")]
+    #[internal]
+    fn _update_utilization(
+        amount_borrowd: u128,
+        amount_supplied: u128,
+        asset: AztecAddress,
+    ) {
+        // 1. get utilization
+        let mut utilization = storage.utilization.at(asset).read();
+        // 2. update the utilization
+        utilization.update(amount_borrowd, amount_supplied);
+        // 3. write the change publicly
+        storage.utilization.at(asset).write(utilization);
+    }
+
+    #[external("private")]
+    #[internal]
+    fn _calculate_collateral(depositor: AztecAddress) -> u128 {
+        // let receipt_loc = storage.receipts.at(depositor);
+        // let options = NoteGetterOptions::new();
+        // let notes = receipt_loc.get_notes(options);
+        // for i in 0..notes.len() {
+        //     if notes[i].is_some() {
+        //         let note = notes.get_unchecked(i);
+        //     }
+        // }
+    }
+
+    // // Create a position.
+    // #[public]
+    // fn update_accumulator() -> Asset {
+    //     let asset_loc = storage.assets.at(0);
+    //     let mut asset: Asset = asset_loc.read();
+
+    //     let timestamp = context.timestamp();
+    //     let dt = timestamp - asset.last_updated_ts;
+
+    //     // Only update if time has passed.
+    //     if !(dt == 0) {
+    //         let precision = 1000000000 as u128;
+    //         let rate_per_second = 1268391679 as u128; // 4% yearly rate / (60 * 60 * 24 * 365)
+    //         // if rate_per_second < sqrt(WAD) our approx is eq precision + rate * dt
+    //         let multiplier = compute_multiplier(rate_per_second, dt);
+
+    //         // accumulator *= multiplier, and multiplier >= 1
+    //         asset.interest_accumulator = (asset.interest_accumulator * multiplier) / precision;
+    //         asset.last_updated_ts = timestamp;
+
+    //         asset_loc.write(asset);
+    //     }
+
+    //     asset
+    // }
+
+    // #[private]
+    // fn deposit_private(
+    //     from: AztecAddress,
+    //     amount: u128,
+    //     authwit_nonce: Field,
+    //     secret: Field,
+    //     on_behalf_of: Field,
+    //     collateral_asset: AztecAddress,
+    // ) {
+    //     let on_behalf_of = compute_identifier(
+    //         secret,
+    //         on_behalf_of,
+    //         context.msg_sender().unwrap().to_field(),
+    //     );
+    //     let _res = Token::at(collateral_asset)
+    //         .transfer_to_public(from, context.this_address(), amount, authwit_nonce)
+    //         .call(&mut context);
+    //     // docs:start:enqueue_public
+    //     Lending::at(context.this_address())
+    //         ._deposit(AztecAddress::from_field(on_behalf_of), amount, collateral_asset)
+    //         .enqueue(&mut context);
+    //     // docs:end:enqueue_public
+    // }
+
+    // #[public]
+    // fn deposit_public(
+    //     amount: u128,
+    //     authwit_nonce: Field,
+    //     on_behalf_of: Field,
+    //     collateral_asset: AztecAddress,
+    // ) {
+    //     let _ = Token::at(collateral_asset)
+    //         .transfer_in_public(
+    //             context.msg_sender().unwrap(),
+    //             context.this_address(),
+    //             amount,
+    //             authwit_nonce,
+    //         )
+    //         .call(&mut context);
+    //     let _ = Lending::at(context.this_address())
+    //         ._deposit(AztecAddress::from_field(on_behalf_of), amount, collateral_asset)
+    //         .call(&mut context);
+    // }
+
+    // #[public]
+    // #[internal]
+    // fn _deposit(owner: AztecAddress, amount: u128, collateral_asset: AztecAddress) {
+    //     let _asset = Lending::at(context.this_address()).update_accumulator().call(&mut context);
+
+    //     let coll_asset = storage.collateral_asset.read();
+    //     assert(coll_asset.eq(collateral_asset));
+
+    //     let coll_loc = storage.collateral.at(owner);
+    //     let collateral = coll_loc.read();
+    //     coll_loc.write(collateral + amount);
+    // }
+
+    // #[private]
+    // fn withdraw_private(secret: Field, to: AztecAddress, amount: u128) {
+    //     let on_behalf_of = compute_identifier(secret, 0, context.msg_sender().unwrap().to_field());
+    //     Lending::at(context.this_address())
+    //         ._withdraw(AztecAddress::from_field(on_behalf_of), to, amount)
+    //         .enqueue(&mut context);
+    // }
+
+    // #[public]
+    // fn withdraw_public(to: AztecAddress, amount: u128) {
+    //     let _ = Lending::at(context.this_address())
+    //         ._withdraw(context.msg_sender().unwrap(), to, amount)
+    //         .call(&mut context);
+    // }
+
+    // #[public]
+    // #[internal]
+    // fn _withdraw(owner: AztecAddress, recipient: AztecAddress, amount: u128) {
+    //     let asset = Lending::at(context.this_address()).update_accumulator().call(&mut context);
+    //     let price = PriceFeed::at(asset.oracle).get_price(0).view(&mut context).price;
+
+    //     let coll_loc = storage.collateral.at(owner);
+    //     let collateral = coll_loc.read();
+
+    //     let debt_loc = storage.static_debt.at(owner);
+    //     let static_debt = debt_loc.read();
+
+    //     // debt_covered will revert if decrease would leave insufficient collateral to cover debt.
+    //     // or trying to remove more collateral than available
+    //     let debt_covered =
+    //         covered_by_collateral(price, asset.loan_to_value, collateral, 0 as u128, amount);
+    //     let debt_returns = debt_updates(
+    //         asset.interest_accumulator,
+    //         static_debt,
+    //         0 as u128,
+    //         0 as u128,
+    //     );
+
+    //     assert(debt_returns.debt_value < debt_covered);
+
+    //     coll_loc.write(collateral - amount);
+
+    //     // @todo @LHerskind Support both shielding and transfers (for now just transfer)
+    //     let collateral_asset = storage.collateral_asset.read();
+    //     let _ = Token::at(collateral_asset)
+    //         .transfer_in_public(context.this_address(), recipient, amount, 0)
+    //         .call(&mut context);
+    // }
+
+    // #[private]
+    // fn borrow_private(secret: Field, to: AztecAddress, amount: u128) {
+    //     let on_behalf_of = compute_identifier(secret, 0, context.msg_sender().unwrap().to_field());
+    //     let _ = Lending::at(context.this_address())
+    //         ._borrow(AztecAddress::from_field(on_behalf_of), to, amount)
+    //         .enqueue(&mut context);
+    // }
+
+    // #[public]
+    // fn borrow_public(to: AztecAddress, amount: u128) {
+    //     let _ = Lending::at(context.this_address())
+    //         ._borrow(context.msg_sender().unwrap(), to, amount)
+    //         .call(&mut context);
+    // }
+
+    // #[public]
+    // #[internal]
+    // fn _borrow(owner: AztecAddress, to: AztecAddress, amount: u128) {
+    //     let asset = Lending::at(context.this_address()).update_accumulator().call(&mut context);
+    //     let price = PriceFeed::at(asset.oracle).get_price(0).view(&mut context).price;
+
+    //     // Fetch collateral and static_debt, compute health of current position
+    //     let collateral = storage.collateral.at(owner).read();
+    //     let static_debt = storage.static_debt.at(owner).read();
+
+    //     let debt_covered =
+    //         covered_by_collateral(price, asset.loan_to_value, collateral, 0 as u128, 0 as u128);
+    //     let debt_returns = debt_updates(asset.interest_accumulator, static_debt, amount, 0 as u128);
+
+    //     assert(debt_returns.debt_value < debt_covered);
+
+    //     storage.static_debt.at(owner).write(debt_returns.static_debt);
+
+    //     // @todo @LHerskind Need to support both private and public minting.
+    //     let stable_coin = storage.stable_coin.read();
+    //     let _ = Token::at(stable_coin).mint_to_public(to, amount).call(&mut context);
+    // }
+
+    // #[private]
+    // fn repay_private(
+    //     from: AztecAddress,
+    //     amount: u128,
+    //     authwit_nonce: Field,
+    //     secret: Field,
+    //     on_behalf_of: Field,
+    //     stable_coin: AztecAddress,
+    // ) {
+    //     let on_behalf_of = compute_identifier(
+    //         secret,
+    //         on_behalf_of,
+    //         context.msg_sender().unwrap().to_field(),
+    //     );
+    //     // docs:start:private_call
+    //     let _ = Token::at(stable_coin).burn_private(from, amount, authwit_nonce).call(&mut context);
+    //     // docs:end:private_call
+    //     let _ = Lending::at(context.this_address())
+    //         ._repay(AztecAddress::from_field(on_behalf_of), amount, stable_coin)
+    //         .enqueue(&mut context);
+    // }
+
+    // #[public]
+    // fn repay_public(
+    //     amount: u128,
+    //     authwit_nonce: Field,
+    //     owner: AztecAddress,
+    //     stable_coin: AztecAddress,
+    // ) {
+    //     let _ = Token::at(stable_coin)
+    //         .burn_public(context.msg_sender().unwrap(), amount, authwit_nonce)
+    //         .call(&mut context);
+    //     let _ = Lending::at(context.this_address())._repay(owner, amount, stable_coin).call(
+    //         &mut context,
+    //     );
+    // }
+
+    // #[public]
+    // #[internal]
+    // fn _repay(owner: AztecAddress, amount: u128, stable_coin: AztecAddress) {
+    //     let asset = Lending::at(context.this_address()).update_accumulator().call(&mut context);
+
+    //     // To ensure that private is using the correct token.
+    //     assert(stable_coin.eq(storage.stable_coin.read()));
+
+    //     let static_debt = storage.static_debt.at(owner).read();
+    //     let debt_returns = debt_updates(asset.interest_accumulator, static_debt, 0 as u128, amount);
+
+    //     storage.static_debt.at(owner).write(debt_returns.static_debt);
+    // }
+
+    // #[public]
+    // #[view]
+    // fn get_asset(asset_id: Field) -> Asset {
+    //     storage.assets.at(asset_id).read()
+    // }
+
+    // #[public]
+    // #[view]
+    // fn get_position(owner: AztecAddress) -> pub Position {
+    //     let collateral = storage.collateral.at(owner).read();
+    //     let static_debt = storage.static_debt.at(owner).read();
+    //     let asset: Asset = storage.assets.at(0).read();
+    //     let debt = debt_value(static_debt, asset.interest_accumulator);
+    //     Position { collateral, static_debt, debt }
+    // }
+
+    // #[public]
+    // #[view]
+    // fn get_assets() -> pub [AztecAddress; 2] {
+    //     [storage.collateral_asset.read(), storage.stable_coin.read()]
+    // }
+}
