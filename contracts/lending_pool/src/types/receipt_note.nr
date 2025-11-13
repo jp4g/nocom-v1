@@ -10,24 +10,24 @@ use aztec::{
 
 #[derive(Deserialize, Eq, Serialize, Packable)]
 #[note]
-pub struct DepositReceiptNote {
+pub struct ReceiptNote {
     owner: AztecAddress,
     randomness: Field,
-    pub deposit_amount: u128,
+    pub amount: u128,
     pub epoch: u64
 }
 
-impl DepositReceiptNote {
+impl ReceiptNote {
     pub fn new(
         owner: AztecAddress,
-        deposit_amount: u128,
+        amount: u128,
         epoch: u64,
     ) -> Self {
         let randomness = unsafe { random() };
         Self {
             owner,
             randomness,
-            deposit_amount,
+            amount,
             epoch,
         }
     }
