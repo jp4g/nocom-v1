@@ -1,5 +1,8 @@
 use aztec::{
-    protocol_types::address::AztecAddress,
+    protocol_types::{
+        address::AztecAddress,
+        constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL
+    },
     note::{
         note_getter_options::{NoteGetterOptions, SortOrder},
         note_interface::NoteProperties,
@@ -58,6 +61,41 @@ pub struct Position {
 //         (total, current_epoch)
 //     }
 // }
+
+/*
+ *
+ * @return (amount, next_epoch)
+ */
+#[contract_library_method]
+pub fn _pop_existing_receipt(
+    context: &mut PrivateContext,
+    asset_address: AztecAddress,
+    receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+    interest_rate: u64
+) -> (u128, u64) {
+    // 1. Get the current epoch & enforce delivery
+    let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
+    // 2. check if there is an existing deposit receipt and remove it if found
+    let opts = NoteGetterOptions::with_filter(filter_to_asset_receipt, asset_address)
+        .set_limit(1);
+    let receipt_notes = receipt_storage.pop_notes(opts);
+    // 3. If no existing receipt, return 0
+    if receipt_notes.len() == 0 {
+        (0, current_epoch)
+    } else {
+        let current_receipt = receipt_notes.get_unchecked(0);
+        // 4. calculate the amount of accrued interest
+        // note: hardcoded 4% rate of interest for now
+        let interest = math::InterestCalculator::new(interest_rate)
+        .calculate_accrued_interest(
+            current_receipt.amount,
+            current_receipt.epoch,
+            current_epoch
+        );
+        let total = current_receipt.amount + interest;
+        (total, current_epoch)
+    }
+}
 
 /**
  * Calculate health factor for single asset
@@ -175,6 +213,27 @@ pub fn get_receipt_amount_ltv_weighted(
         }
     }
     total_value
+}
+
+// Ensures that either no note was found or one note matches
+pub fn filter_to_asset_receipt(
+    retrieved_notes: [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL],
+    asset_address: AztecAddress
+) -> [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL] {
+    let mut selected = [Option::none(); MAX_NOTE_HASH_READ_REQUESTS_PER_CALL];
+
+    // let mut found = [false; N];
+
+    // there should only be one matching note at most
+    // so we don't loop over MAX_NOTE_HASH_READ_REQUESTS_PER_CALL
+    let retrieved_note = retrieved_notes[0];
+    if retrieved_note.is_some() {
+        let note = retrieved_note.unwrap_unchecked().note;
+        assert(note.asset == asset_address, "mismatch asset address in receipt");
+        selected[0] = retrieved_notes[0];
+    }
+
+    selected
 }
 
 // #[contract_library_method]

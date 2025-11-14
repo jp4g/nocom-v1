@@ -39,7 +39,7 @@ pub contract NocomLendingPoolV1 {
     };
     use nocom_escrow::NocomEscrowV1;
     use token_contract::Token;
-    use mock_price_feed::PriceFeed;
+    use mock_price_feed::MockPriceFeed;
 
     // use crate::asset::Asset;
     // use crate::helpers::{compute_identifier, covered_by_collateral, debt_updates, debt_value};
@@ -226,34 +226,25 @@ pub contract NocomLendingPoolV1 {
     //     storage.utilization.at(asset).write(utilization);
     // }
 
-    // #[external("public")]
-    // #[internal]
-    // fn _check_price(
-    //     asset: AztecAddress,
-    //     asserted_price: u128,
-    //     check_is_below: bool
-    // ) {
-    //     // todo: figure out private batch checks somehow
-    //     // 1. get config
-    //     let config = storage.config.read();
-    //     // 2. get price from oracle
-    //     let current_price = PriceFeed::at(config.oracle_address)
-    //         .get_price(asset.to_field())
-    //         .view(&mut context)
-    //         .price;
-    //     // 3. compare prices
-    //     if check_is_below {
-    //         // if checking LTV for liquidation, ensure privately asserted price is
-    //         // at least current price if not higher. This is unfavorable for
-    //         // the liquidator but prevents bad liquidations
-    //         assert(current_price <= asserted_price);
-    //     } else {
-    //         // if checking LTV for borrow, ensure privately asserted price is at most the current
-    //         // price if not lower. This is unfavorable for the borrower but prevents
-    //         // borrowing at lower than cost
-    //         assert(current_price >= asserted_price);
-    //     }
-    // }
+    #[external("public")]
+    #[internal]
+    fn _check_price(
+        assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
+        asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>
+    ) {
+        // todo: add degree of price slippage tolerance per asset
+        // 1. get config
+        let config = storage.config.read();
+        // 2. get prices from oracle
+        let prices = MockPriceFeed::at(config.oracle_address)
+            .get_prices(assets)
+            .view(&mut context);
+        for i in 0..prices.len() {
+            let price = prices.get_unchecked(i);
+            let asserted_price = asserted_prices.get_unchecked(i);
+            assert(price == asserted_price, "Price mismatch");
+        }
+    }
 
     
 
