@@ -1,15 +1,18 @@
-# basic
+# Nocom Fi 
+No Comment Finance - encrypted money market with private collateral and loans
 
-To install dependencies:
-
-```bash
-bun install
-```
-
-To run:
-
-```bash
-bun run index.ts
-```
-
-This project was created using `bun init` in bun v1.3.1. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+## Todo:
+ - Validate interest rate math with tests
+ - Add liquidation logic
+ - TXE test harness
+ - PXE test harness
+ - Prevent non-escrow from using the pool
+ - Figure out how to ensure escrow keys are leaked before using
+ - Add stable coin minting from borrows
+ - Create note monitoring service
+ - Create mock price oracle service
+ - Create liquidation threshold monitoring service
+ - Create liquidation engine
+ - Dockerize above 4 services and deploy inside a TEE
+ - Front end
+ - Clean up zcash intents bridge, maybe add bidirectional transactions?

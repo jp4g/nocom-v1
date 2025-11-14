@@ -38,13 +38,13 @@ pub contract NocomLendingPoolV1 {
             contract_methods::{
                 _pop_existing_receipt,
                 _calculate_health_factor,
-                // _check_prices
             },
+            contract_interfaces::escrow_transfer_callback,
             validation,
             math
         }
     };
-    use nocom_escrow::NocomEscrowV1;
+    // use nocom_escrow::NocomEscrowV1;
     use mock_price_feed::MockPriceFeed;
     use token_contract::Token;
 
@@ -163,9 +163,12 @@ pub contract NocomLendingPoolV1 {
             .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
 
         // 6. pull in tokens
-        NocomEscrowV1::at(depositor)
-            .transfer_callback(amount, asset_address)
-            .call(&mut context);
+        escrow_transfer_callback(
+            &mut context,
+            context.msg_sender().unwrap(),
+            amount,
+            asset_address,
+        );
 
         // 7. update utilization
         NocomLendingPoolV1::at(context.this_address())
@@ -376,9 +379,12 @@ pub contract NocomLendingPoolV1 {
         }
 
         // 5. pull in tokens for repayment
-        NocomEscrowV1::at(depositor)
-            .transfer_callback(amount, asset_address)
-            .call(&mut context);
+        escrow_transfer_callback(
+            &mut context,
+            context.msg_sender().unwrap(),
+            amount,
+            asset_address,
+        );
 
         // 6. update utilization
         NocomLendingPoolV1::at(context.this_address())
