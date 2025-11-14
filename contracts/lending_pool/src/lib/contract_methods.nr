@@ -10,7 +10,13 @@ use aztec::{
 };
 
 use crate::{
-    NocomLendingPoolV1::{self, EPOCH_LENGTH, MAX_ASSETS_PER_ACCOUNT},
+    NocomLendingPoolV1::{
+        self,
+        EPOCH_LENGTH,
+        MAX_ASSETS_PER_ACCOUNT,
+        LEND_INTEREST,
+        BORROW_INTEREST,
+    },
     lib::{time, math},
     types::receipt_note::ReceiptNote,
 };
@@ -58,27 +64,42 @@ pub struct Position {
  */
 #[contract_library_method]
 pub fn _calculate_health_factor(
-    depositor: AztecAddress,
     context: &mut PrivateContext,
-    deposit_receipt_storage: Map<AztecAddress, PrivateMutable<ReceiptNote, &mut PrivateContext>, &mut PrivateContext>,
-    loan_receipt_storage: Map<AztecAddress, PrivateMutable<ReceiptNote, &mut PrivateContext>, &mut PrivateContext>,
-    asserted_price: u128,
+    deposit_receipt_set: PrivateSet<ReceiptNote, &mut PrivateContext>,
+    collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    ltvs: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    loan_receipt_set: PrivateSet<ReceiptNote, &mut PrivateContext>,
+    debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 ) -> u128 {
-    // 1. get receipts
-    let deposit_receipt_emission = deposit_receipt_storage.at(depositor).get_note();
-    let deposit_receipt = deposit_receipt_emission.content.note;
-    let loan_receipt_emission = loan_receipt_storage.at(depositor).get_note();
-    let loan_receipt = loan_receipt_emission.content.note;
-    // 2. 
-    0
+    // 1. get collateral value
+    let weighted_collateral_value = get_receipt_amount_ltv_weighted(
+        context,
+        deposit_receipt_set,
+        LEND_INTEREST,
+        collateral_prices,
+        ltvs
+    ) as Field;
+    // 2. get debt value
+    let debt_value = get_receipt_amount(
+        context,
+        loan_receipt_set,
+        BORROW_INTEREST,
+        debt_prices
+    ) as Field;
+    // 3. calculate health factor
+    let health_factor = if debt_value == 0 {
+        math::U128_MAX
+    } else {
+        ((weighted_collateral_value * math::SCALE) / debt_value) as u128
+    };
+    health_factor
 }
 
 // todo: constrain amount of notes provided to be exact number
 #[contract_library_method]
 pub fn get_receipt_amount(
-    depositor: AztecAddress,
     context: &mut PrivateContext,
-    receipt_storage: Map<AztecAddress, PrivateSet<ReceiptNote, &mut PrivateContext>, &mut PrivateContext>,
+    receipt_set: PrivateSet<ReceiptNote, &mut PrivateContext>,
     interest_rate: u64,
     prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>
 ) -> u128 {
@@ -87,7 +108,7 @@ pub fn get_receipt_amount(
     let opts = NoteGetterOptions::new()
         .set_limit(MAX_ASSETS_PER_ACCOUNT)
         .sort(ReceiptNote::properties().asset, SortOrder.ASC);
-    let receipt_notes = receipt_storage.at(depositor).get_notes(opts);
+    let receipt_notes = receipt_set.get_notes(opts);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
@@ -105,9 +126,52 @@ pub fn get_receipt_amount(
                 ) as Field;
             // determine price
             let price = prices.get_unchecked(i) as Field;
-            let asset_value = (amount * price / math::SCALE) as u128;
+            let asset_value = amount * price / math::SCALE;
             // accumulate total value
-            total_value += asset_value;
+            total_value += asset_value as u128;
+        }
+    }
+    total_value
+}
+
+// todo: constrain amount of notes provided to be exact number
+#[contract_library_method]
+pub fn get_receipt_amount_ltv_weighted(
+    context: &mut PrivateContext,
+    receipt_set: PrivateSet<ReceiptNote, &mut PrivateContext>,
+    interest_rate: u64,
+    prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    ltvs: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+) -> u128 {
+    // 1. Get all the notes for the depositor
+    // enforce sorting asset addresses by ascending to match prices order
+    let opts = NoteGetterOptions::new()
+        .set_limit(MAX_ASSETS_PER_ACCOUNT)
+        .sort(ReceiptNote::properties().asset, SortOrder.ASC);
+    let receipt_notes = receipt_set.get_notes(opts);
+    assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
+    // 2. get current epoch
+    let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
+    // 3. iterate through and determine values per asset
+    let mut total_value: u128 = 0;
+    for i in 0..MAX_ASSETS_PER_ACCOUNT {
+        if i < receipt_notes.len() {
+            // calculate total with interest
+            let receipt = receipt_notes.get_unchecked(i);
+            let amount = math::InterestCalculator::new(interest_rate)
+                .calculate_interest(
+                    receipt.note.amount,
+                    receipt.note.epoch,
+                    current_epoch
+                ) as Field;
+            // determine price
+            let price = prices.get_unchecked(i) as Field;
+            let asset_value = amount * price / math::SCALE;
+            // apply LTV weighting
+            let ltv = ltvs.get_unchecked(i) as Field;
+            let asset_value = asset_value as Field * ltv / math::SCALE;
+            // accumulate total value
+            total_value += asset_value as u128;
         }
     }
     total_value

@@ -4,6 +4,7 @@ pub struct InterestCalculator {
 }
 
 pub global SCALE: Field = comptime { 10.pow_32(18) };
+pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 };
 
 impl InterestCalculator {
     pub fn new(annual_rate_percent: u64) -> Self {

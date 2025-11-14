@@ -58,6 +58,9 @@ pub contract NocomLendingPoolV1 {
     // limitation of note getting
     pub global MAX_ASSETS_PER_ACCOUNT: u32 = 4;
 
+    pub global LEND_INTEREST: u64 = 4; // hardcoded 4% for supplying
+    pub global BORROW_INTEREST: u64 = 5; // hardcoded 5% for borrowing
+
 
     // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
