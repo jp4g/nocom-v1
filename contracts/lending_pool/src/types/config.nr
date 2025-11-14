@@ -1,9 +1,6 @@
 use aztec::{
     context::PrivateContext,
-    protocol_types::{
-        traits::{Deserialize, Serialize, Packable, ToField},
-        address::AztecAddress,
-    },  
+    protocol_types::{address::AztecAddress, traits::{Deserialize, Packable, Serialize, ToField}},
 };
 
 #[derive(Eq, Serialize, Deserialize, Packable)]

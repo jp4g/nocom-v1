@@ -5,36 +5,27 @@ pub mod types;
 
 #[aztec]
 pub contract NocomEscrowV1 {
+    use crate::types::config_note::ConfigNote;
     use aztec::{
-        macros::{
-            functions::{initializer, external},
-            storage::storage
-        },
+        macros::{functions::{external, initializer}, storage::storage},
         messages::message_delivery::MessageDelivery,
         protocol_types::address::AztecAddress,
-        state_vars::PrivateImmutable
+        state_vars::PrivateImmutable,
     };
     use token_contract::Token;
-    use crate::types::config_note::ConfigNote;
-
 
     #[storage]
     struct Storage<Context> {
         config: PrivateImmutable<ConfigNote, Context>,
     }
-    
+
     #[external("private")]
     #[initializer]
-    fn constructor(
-        pool_address: AztecAddress
-    ) {
+    fn constructor(pool_address: AztecAddress) {
         let self_address = context.this_address();
 
         // Create config note
-        let config = ConfigNote::new(
-            context.msg_sender().unwrap(),
-            pool_address
-        );
+        let config = ConfigNote::new(context.msg_sender().unwrap(), pool_address);
 
         // emit to any holders of escrow key
         storage.config.initialize(config).emit(self_address, MessageDelivery.CONSTRAINED_ONCHAIN);
@@ -43,7 +34,7 @@ pub contract NocomEscrowV1 {
     // fn calculate_collateral() -> u128 {
     //     storage.con
     // }
-    
+
     // /**
     //  * Supply collateral
     //  */
@@ -75,13 +66,7 @@ pub contract NocomEscrowV1 {
         assert(context.msg_sender().unwrap() == config.pool);
 
         // 2. transfer tokens in private-to-public
-        Token::at(asset)
-            .transfer_private_to_public(
-                context.this_address(),
-                config.pool,
-                amount,
-                0
-            );
+        Token::at(asset).transfer_private_to_public(context.this_address(), config.pool, amount, 0);
     }
 
     // /**

@@ -40,7 +40,8 @@ pub contract NocomLendingPoolV1 {
                 _calculate_health_factor,
                 // _check_prices
             },
-            validation
+            validation,
+            math
         }
     };
     use nocom_escrow::NocomEscrowV1;
@@ -168,74 +169,86 @@ pub contract NocomLendingPoolV1 {
     //         .enqueue(&mut context); 
     // }
 
-    // /**
-    //  * Withdraw supplied collateral
-    //  *
-    //  * @param asset_address The address of the token collateral to withdraw
-    //  * @param amount the amount of the collateral token to withdraw
-    //  * @param partial_commitment - the partial commitment to transfer tokens to
-    //  * @param
-    //  */
-    // #[external("private")]
-    // fn withdraw_private(
-    //     asset_address: AztecAddress,
-    //     amount: u128,
-    //     partial_commitment: Field,
-    //     collateral_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-    //     collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    //     debt_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-    //     debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    // ) {
-    //     let depositor = context.msg_sender().unwrap();
-    //     // 1. get the config
-    //     let config = storage.config.read();
+    /**
+     * Withdraw supplied collateral
+     *
+     * @param asset_address The address of the token collateral to withdraw
+     * @param amount the amount of the collateral token to withdraw
+     * @param partial_commitment - the partial commitment to transfer tokens to
+     * @param
+     */
+    #[external("private")]
+    fn withdraw_private(
+        asset_address: AztecAddress,
+        amount: u128,
+        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        partial_commitment: Field,
+    ) {
+        let depositor = context.msg_sender().unwrap();
+        // 1. get the config
+        let config = storage.config.read();
     
-    //     // 2. combine deposit receipts to get total amount + interest
-    //     let (total_amount, current_epoch) = _combine_receipts(
-    //         depositor,
-    //         &mut context,
-    //         storage.deposit_receipts,
-    //     );
-    //     assert(total_amount >= amount);
+        // 2. combine deposit receipts to get total amount + interest
+        let (amount_supplied, current_epoch) = _pop_existing_receipt(
+            &mut context,
+            asset_address,
+            storage.deposit_receipts.at(depositor),
+            LEND_INTEREST
+        );
+        assert(amount_supplied >= amount);
 
-    //     // 3. create new deposit receipt for remaining amount (if any)
-    //     let remaining_amount = total_amount - amount;
-    //     if remaining_amount > 0 {
-    //         let receipt_note = ReceiptNote::new(
-    //             depositor,
-    //             asset_address,
-    //             remaining_amount,
-    //             current_epoch + 1,
-    //         );
-    //         storage.deposit_receipts
-    //             .at(depositor)
-    //             .insert(receipt_note)
-    //             .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
-    //     }
+        // 3. create new deposit receipt for remaining amount (if any)
+        let remaining_amount = amount_supplied - amount;
+        if remaining_amount > 0 {
+            let receipt_note = ReceiptNote::new(
+                depositor,
+                asset_address,
+                remaining_amount,
+                current_epoch + 1,
+            );
+            storage.deposit_receipts
+                .at(depositor)
+                .insert(receipt_note)
+                .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+        }
 
-    //     // 4. Check the health factor after withdrawal
-    //     _calculate_health_factor(
+        // 4. Compute the health factor after withdrawal and return the assets involved
+        // NOTE: this will automatically order assets by ascending address when returned
+        // if the asserted prices are not ordered correctly, the public price check will catch it
+        let (health_factor, collateral_assets, debt_assets) = _calculate_health_factor(
+            &mut context,
+            storage.deposit_receipts.at(depositor),
+            storage.loan_receipts.at(depositor),
+            storage.ltvs,
+            collateral_prices,
+            debt_asserted_prices,
+        );
 
-    //     )
+        // 5. Check the health factor
+        assert(health_factor >= math::SCALE as u128, "Undercollateralized BOZO, L + LTV RATIO");
 
-    //     // 5. Check all prices
-        
+        // 6. transfer tokens out to depositor
+        Token::at(asset_address)
+            .transfer_public_to_commitment(
+                context.this_address(),
+                partial_commitment,
+                amount,
+                0
+            )
+            .enqueue(&mut context);
 
-    //     // 5. transfer tokens out to depositor
-    //     Token::at(config.asset_token_address)
-    //         .transfer_public_to_commitment(
-    //             context.this_address(),
-    //             partial_commitment,
-    //             amount,
-    //             0
-    //         )
-    //         .enqueue(&mut context);
-
-    //     // 6. update utilization
-    //     NocomLendingPoolV1::at(context.this_address())
-    //         ._update_utilization(0, 0 - amount, config.asset_token_address)
-    //         .enqueue(&mut context);
-    // }
+        // 7. update utilization and check asserted prices
+        NocomLendingPoolV1::at(context.this_address())
+            ._post_withdrawal(
+                asset_address,
+                amount,
+                collateral_assets,
+                collateral_prices,
+                debt_assets,
+                debt_asserted_prices,           
+            ).enqueue(&mut context);
+    }
 
     #[external("public")]
     #[internal]

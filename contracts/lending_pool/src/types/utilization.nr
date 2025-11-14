@@ -1,15 +1,12 @@
 use aztec::{
     context::PrivateContext,
-    protocol_types::{
-        traits::{Deserialize, Serialize, Packable, ToField},
-        address::AztecAddress,
-    },  
+    protocol_types::{address::AztecAddress, traits::{Deserialize, Packable, Serialize, ToField}},
 };
 
 #[derive(Eq, Serialize, Deserialize, Packable)]
 pub struct Utilization {
     pub total_borrowed: u128,
-    pub total_supplied: u128
+    pub total_supplied: u128,
 }
 
 impl Utilization {

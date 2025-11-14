@@ -1,14 +1,10 @@
 use aztec::{
+    context::PrivateContext,
     macros::notes::note,
     oracle::random::random,
-    context::PrivateContext,
-    protocol_types::{
-        traits::{Deserialize, Serialize, Packable, ToField},
-        address::AztecAddress,
-    },  
+    protocol_types::{address::AztecAddress, traits::{Deserialize, Packable, Serialize, ToField}},
 };
 use poseidon::poseidon2::Poseidon2;
-
 
 #[derive(Eq, Serialize, Deserialize, Packable)]
 #[note]
@@ -20,18 +16,10 @@ pub struct ConfigNote {
 }
 
 impl ConfigNote {
-    pub fn new(
-        owner: AztecAddress,
-        pool: AztecAddress,
-    ) -> Self {
+    pub fn new(owner: AztecAddress, pool: AztecAddress) -> Self {
         let randomness = unsafe { random() };
         let holder_commitment = Self::compute_holder_commitment(owner, randomness);
-        Self {
-            owner,
-            holder_commitment,
-            pool,
-            randomness,
-        }
+        Self { owner, holder_commitment, pool, randomness }
     }
 
     pub fn compute_holder_commitment(address: AztecAddress, secret: Field) -> Field {

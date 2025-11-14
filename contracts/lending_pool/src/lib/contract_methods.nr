@@ -1,39 +1,31 @@
 use aztec::{
-    protocol_types::{
-        address::AztecAddress,
-        constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL
-    },
+    context::{PrivateContext, PublicContext},
     note::{
         note_getter_options::{NoteGetterOptions, SortOrder},
         note_interface::NoteProperties,
         retrieved_note::RetrievedNote,
     },
-    context::{PrivateContext, PublicContext},
-    state_vars::{Map, PublicImmutable, PrivateSet}
+    protocol_types::{address::AztecAddress, constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL},
+    state_vars::{Map, PrivateSet, PublicImmutable},
 };
 
 use mock_price_feed::MockPriceFeed;
 
 use crate::{
+    lib::{math, time},
     NocomLendingPoolV1::{
-        self,
-        EPOCH_LENGTH,
-        MAX_ASSETS_PER_ACCOUNT,
-        LEND_INTEREST,
-        BORROW_INTEREST,
+        self, BORROW_INTEREST, EPOCH_LENGTH, LEND_INTEREST, MAX_ASSETS_PER_ACCOUNT,
     },
-    lib::{time, math},
     types::receipt_note::ReceiptNote,
 };
 
 pub struct Position {
     pub amount: u128,
-    pub asset: AztecAddress
+    pub asset: AztecAddress,
 }
 
 #[contract_library_method]
 pub fn _get_ltvs(
-    context: &mut PrivateContext,
     assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
 ) -> BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT> {
@@ -57,13 +49,12 @@ pub fn _pop_existing_receipt(
     context: &mut PrivateContext,
     asset_address: AztecAddress,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
-    interest_rate: u64
+    interest_rate: u64,
 ) -> (u128, u64) {
     // 1. Get the current epoch & enforce delivery
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 2. check if there is an existing deposit receipt and remove it if found
-    let opts = NoteGetterOptions::with_filter(filter_to_asset_receipt, asset_address)
-        .set_limit(1);
+    let opts = NoteGetterOptions::with_filter(filter_to_asset_receipt, asset_address).set_limit(1);
     let receipt_notes = receipt_storage.pop_notes(opts);
     // 3. If no existing receipt, return 0
     if receipt_notes.len() == 0 {
@@ -72,11 +63,10 @@ pub fn _pop_existing_receipt(
         let current_receipt = receipt_notes.get_unchecked(0);
         // 4. calculate the amount of accrued interest
         // note: hardcoded 4% rate of interest for now
-        let interest = math::InterestCalculator::new(interest_rate)
-        .calculate_accrued_interest(
+        let interest = math::InterestCalculator::new(interest_rate).calculate_accrued_interest(
             current_receipt.amount,
             current_receipt.epoch,
-            current_epoch
+            current_epoch,
         );
         let total = current_receipt.amount + interest;
         (total, current_epoch)
@@ -94,11 +84,7 @@ pub fn _calculate_health_factor(
     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
     collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
     debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-) -> (
-    u128,
-    BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-    BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>
-    ) {
+) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. get collateral value
     let (weighted_collateral_value, collateral_assets) = get_receipt_amount_ltv_weighted(
         context,
@@ -108,12 +94,8 @@ pub fn _calculate_health_factor(
         collateral_prices,
     );
     // 2. get debt value
-    let (debt_value, debt_assets) = get_receipt_amount(
-        context,
-        loan_receipt_storage,
-        BORROW_INTEREST,
-        debt_prices
-    );
+    let (debt_value, debt_assets) =
+        get_receipt_amount(context, loan_receipt_storage, BORROW_INTEREST, debt_prices);
     // 3. calculate health factor
     let health_factor = if debt_value == 0 {
         math::U128_MAX
@@ -129,13 +111,14 @@ pub fn get_receipt_amount(
     context: &mut PrivateContext,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
     interest_rate: u64,
-    prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>
+    prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. Get all the notes for the depositor
     // enforce sorting asset addresses by ascending to match prices order
-    let opts = NoteGetterOptions::new()
-        .set_limit(MAX_ASSETS_PER_ACCOUNT)
-        .sort(ReceiptNote::properties().asset, SortOrder.ASC);
+    let opts = NoteGetterOptions::new().set_limit(MAX_ASSETS_PER_ACCOUNT).sort(
+        ReceiptNote::properties().asset,
+        SortOrder.ASC,
+    );
     let receipt_notes = receipt_storage.get_notes(opts);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
     // 2. get current epoch
@@ -147,12 +130,11 @@ pub fn get_receipt_amount(
         if i < receipt_notes.len() {
             // calculate total with interest
             let receipt = receipt_notes.get_unchecked(i);
-            let amount = math::InterestCalculator::new(interest_rate)
-                .calculate_interest(
-                    receipt.note.amount,
-                    receipt.note.epoch,
-                    current_epoch
-                ) as Field;
+            let amount = math::InterestCalculator::new(interest_rate).calculate_interest(
+                receipt.note.amount,
+                receipt.note.epoch,
+                current_epoch,
+            ) as Field;
             // determine price
             let price = prices.get_unchecked(i) as Field;
             let asset_value = amount * price / math::SCALE;
@@ -187,9 +169,10 @@ pub fn get_receipt_amount_ltv_weighted(
 ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. Get all the notes for the depositor
     // enforce sorting asset addresses by ascending to match prices order
-    let opts = NoteGetterOptions::new()
-        .set_limit(MAX_ASSETS_PER_ACCOUNT)
-        .sort(ReceiptNote::properties().asset, SortOrder.ASC);
+    let opts = NoteGetterOptions::new().set_limit(MAX_ASSETS_PER_ACCOUNT).sort(
+        ReceiptNote::properties().asset,
+        SortOrder.ASC,
+    );
     let receipt_notes = receipt_storage.get_notes(opts);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
     // 2. get current epoch
@@ -202,19 +185,18 @@ pub fn get_receipt_amount_ltv_weighted(
             assets.push(receipt.note.asset);
         }
     }
-    let ltvs = _get_ltvs(context, assets, ltv_storage);
+    let ltvs = _get_ltvs(assets, ltv_storage);
     // 4. iterate through and determine values per asset
     let mut total_value: u128 = 0;
     for i in 0..MAX_ASSETS_PER_ACCOUNT {
         if i < receipt_notes.len() {
             // calculate total with interest
             let receipt = receipt_notes.get_unchecked(i);
-            let amount = math::InterestCalculator::new(interest_rate)
-                .calculate_interest(
-                    receipt.note.amount,
-                    receipt.note.epoch,
-                    current_epoch
-                ) as Field;
+            let amount = math::InterestCalculator::new(interest_rate).calculate_interest(
+                receipt.note.amount,
+                receipt.note.epoch,
+                current_epoch,
+            ) as Field;
             // determine price
             let price = prices.get_unchecked(i) as Field;
             let asset_value = amount * price / math::SCALE;
@@ -231,7 +213,7 @@ pub fn get_receipt_amount_ltv_weighted(
 // Ensures that either no note was found or one note matches
 pub fn filter_to_asset_receipt(
     retrieved_notes: [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL],
-    asset_address: AztecAddress
+    asset_address: AztecAddress,
 ) -> [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL] {
     let mut selected = [Option::none(); MAX_NOTE_HASH_READ_REQUESTS_PER_CALL];
 

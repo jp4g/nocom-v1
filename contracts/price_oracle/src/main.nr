@@ -3,12 +3,9 @@ use aztec::macros::aztec;
 #[aztec]
 pub contract MockPriceFeed {
     use aztec::{
-        macros::{
-            functions::{external, view, initializer},
-            storage::storage
-        },
+        macros::{functions::{external, initializer, view}, storage::storage},
         protocol_types::address::AztecAddress,
-        state_vars::{Map, PublicMutable}
+        state_vars::{Map, PublicMutable},
     };
 
     global MAX_ASSETS_PER_CALL: u32 = 4; // just set based on nocom for prototype
@@ -17,7 +14,7 @@ pub contract MockPriceFeed {
     #[storage]
     struct Storage<Context> {
         assets: Map<AztecAddress, PublicMutable<u128, Context>, Context>,
-        admin: PublicMutable<AztecAddress, Context>
+        admin: PublicMutable<AztecAddress, Context>,
     }
 
     #[external("public")]
@@ -52,11 +49,11 @@ pub contract MockPriceFeed {
     #[external("public")]
     fn set_prices(
         asset_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_CALL>,
-        prices: BoundedVec<u128, MAX_ASSETS_PER_CALL>
+        prices: BoundedVec<u128, MAX_ASSETS_PER_CALL>,
     ) {
         let admin = storage.admin.read();
         assert(context.msg_sender().unwrap() == admin, "Only admin can set prices");
-    
+
         for i in 0..asset_addresses.len() {
             let asset_address = asset_addresses.get_unchecked(i);
             let price = prices.get_unchecked(i);
@@ -68,7 +65,7 @@ pub contract MockPriceFeed {
     #[external("public")]
     #[view]
     fn get_prices(
-        asset_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_CALL>
+        asset_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_CALL>,
     ) -> BoundedVec<u128, MAX_ASSETS_PER_CALL> {
         let mut prices: BoundedVec<u128, MAX_ASSETS_PER_CALL> = BoundedVec::new();
         for i in 0..asset_addresses.len() {

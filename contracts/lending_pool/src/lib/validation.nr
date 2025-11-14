@@ -1,10 +1,7 @@
-use aztec::protocol_types::{address::AztecAddress, traits::ToField};
 use crate::NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT;
+use aztec::protocol_types::{address::AztecAddress, traits::ToField};
 
-
-pub fn ensure_asset_ordering(
-    assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-) {
+pub fn ensure_asset_ordering(assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     let mut last_value = 0;
     for i in 0..assets.len() {
         if i < assets.len() {
