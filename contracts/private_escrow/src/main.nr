@@ -60,7 +60,7 @@ pub contract NocomEscrowV1 {
     // }
 
     #[external("private")]
-    fn deposit_collateral_callback(amount: u128, asset: AztecAddress) {
+    fn transfer_callback(amount: u128, asset: AztecAddress) {
         // 1. check caller is pool
         let config = storage.config.get_note();
         assert(context.msg_sender().unwrap() == config.pool);

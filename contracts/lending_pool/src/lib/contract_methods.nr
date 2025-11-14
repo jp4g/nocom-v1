@@ -42,7 +42,7 @@ pub fn _get_ltvs(
 
 /*
  *
- * @return (amount, next_epoch)
+ * @return (principal, interest, next_epoch)
  */
 #[contract_library_method]
 pub fn _pop_existing_receipt(
@@ -50,7 +50,7 @@ pub fn _pop_existing_receipt(
     asset_address: AztecAddress,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
     interest_rate: u64,
-) -> (u128, u64) {
+) -> (u128, u128, u64) {
     // 1. Get the current epoch & enforce delivery
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 2. check if there is an existing deposit receipt and remove it if found
@@ -58,7 +58,7 @@ pub fn _pop_existing_receipt(
     let receipt_notes = receipt_storage.pop_notes(opts);
     // 3. If no existing receipt, return 0
     if receipt_notes.len() == 0 {
-        (0, current_epoch)
+        (0, 0, current_epoch)
     } else {
         let current_receipt = receipt_notes.get_unchecked(0);
         // 4. calculate the amount of accrued interest
@@ -68,8 +68,7 @@ pub fn _pop_existing_receipt(
             current_receipt.epoch,
             current_epoch,
         );
-        let total = current_receipt.amount + interest;
-        (total, current_epoch)
+        (current_receipt.amount, interest, current_epoch)
     }
 }
 

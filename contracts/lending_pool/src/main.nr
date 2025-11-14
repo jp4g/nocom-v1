@@ -68,6 +68,8 @@ pub contract NocomLendingPoolV1 {
     pub global LEND_INTEREST: u64 = 4; // hardcoded 4% for supplying
     pub global BORROW_INTEREST: u64 = 5; // hardcoded 5% for borrowing
 
+    pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 }; // 10% fee on interest earned
+
 
     // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
@@ -88,12 +90,17 @@ pub contract NocomLendingPoolV1 {
     // Constructs the contract.
     #[external("public")]
     #[initializer]
-    fn constructor(oracle: AztecAddress, stable_token: AztecAddress) {
+    fn constructor(
+        oracle_address: AztecAddress,
+        stable_token_address: AztecAddress,
+        treasury_address: AztecAddress
+    ) {
         // just initialize config
         let config = Config {
             admin: context.msg_sender().unwrap(),
-            oracle_address: oracle,
-            stable_token_address: stable_token,
+            oracle_address,
+            stable_token_address,
+            treasury_address
         };
         storage.config.initialize(config);
     }
@@ -135,12 +142,13 @@ pub contract NocomLendingPoolV1 {
 
         // 3. determine if there is an existing deposit receipt
         // if so, remove from set and return the amount with interest
-        let (amount_existing, current_epoch) = _pop_existing_receipt(
+        let (principal, interest, current_epoch) = _pop_existing_receipt(
             &mut context,
             asset_address,
             storage.deposit_receipts.at(depositor),
             LEND_INTEREST
         );
+        let amount_existing = principal + interest;
         // 4. Insert new deposit receipt note
         let receipt_note = ReceiptNote::new(
             depositor,
@@ -156,7 +164,7 @@ pub contract NocomLendingPoolV1 {
 
         // 6. pull in tokens
         NocomEscrowV1::at(depositor)
-            .deposit_collateral_callback(amount, asset_address)
+            .transfer_callback(amount, asset_address)
             .call(&mut context);
 
         // 7. update utilization
@@ -186,17 +194,21 @@ pub contract NocomLendingPoolV1 {
         // 1. get the config
         let config = storage.config.read();
     
-        // 2. combine deposit receipts to get total amount + interest
-        let (amount_supplied, current_epoch) = _pop_existing_receipt(
+        // 2. combine deposit receipts to get principal + interest
+        let (amount_supplied, interest, current_epoch) = _pop_existing_receipt(
             &mut context,
             asset_address,
             storage.deposit_receipts.at(depositor),
             LEND_INTEREST
         );
-        assert(amount_supplied >= amount);
+
+        // 3. determine the amount of interest claimable by the protocol
+        let lending_protocol_fee = ((interest as Field * LENDING_PROTOCOL_FEE as Field) / math::SCALE) as u128;
+        let total_available = amount_supplied + interest - lending_protocol_fee;
+        assert(total_available >= amount);
 
         // 3. create new deposit receipt for remaining amount (if any)
-        let remaining_amount = amount_supplied - amount;
+        let remaining_amount = total_available - amount;
         if remaining_amount > 0 {
             let receipt_note = ReceiptNote::new(
                 depositor,
@@ -240,6 +252,7 @@ pub contract NocomLendingPoolV1 {
             ._post_withdrawal(
                 asset_address,
                 amount,
+                lending_protocol_fee,
                 collateral_assets,
                 collateral_prices,
                 debt_assets,
@@ -262,12 +275,13 @@ pub contract NocomLendingPoolV1 {
 
         // 2. determine if there is an existing loan receipt
         // if so, remove from set and return the amount with interest
-        let (amount_existing, current_epoch) = _pop_existing_receipt(
+        let (principal, interest, current_epoch) = _pop_existing_receipt(
             &mut context,
             asset_address,
             storage.loan_receipts.at(depositor),
             BORROW_INTEREST
         );
+        let amount_existing = principal + interest;
         // 4. Insert new loan receipt note
         let receipt_note = ReceiptNote::new(
             depositor,
@@ -318,6 +332,61 @@ pub contract NocomLendingPoolV1 {
             ).enqueue(&mut context);
     }
 
+    #[external("private")]
+    fn repay_private(
+        amount: u128,
+        asset_address: AztecAddress,
+    ) {
+        let depositor = context.msg_sender().unwrap();
+        // 1. get the config
+        let config = storage.config.read();
+
+        // 2. determine if there is an existing debt to pay for this asset
+        let (principal, interest, current_epoch) = _pop_existing_receipt(
+            &mut context,
+            asset_address,
+            storage.loan_receipts.at(depositor),
+            BORROW_INTEREST
+        );
+        let amount_debt = principal + interest;
+        assert(amount_debt > 0, "No existing debt to repay");
+
+        // 3. determine the exact amount to repay
+        assert(amount_debt >= amount, "Repay amount exceeds debt, set to 0 if you want to fully repay");
+        let amount_to_repay = if amount == 0 {
+            // if amount is set to 0, repay whatever the full debt is
+            amount_debt
+        } else {
+            amount
+        };
+        
+        // 4. Insert new loan receipt note for remaining amount if partial repayment
+        let remaining_amount = amount_debt - amount_to_repay;
+        if remaining_amount > 0 {
+            let receipt_note = ReceiptNote::new(
+                depositor,
+                asset_address,
+                remaining_amount,
+                current_epoch, // start accumulating this epoch
+            );
+            storage.loan_receipts
+                .at(depositor)
+                .insert(receipt_note)
+                .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+        }
+
+        // 5. pull in tokens for repayment
+        NocomEscrowV1::at(depositor)
+            .transfer_callback(amount, asset_address)
+            .call(&mut context);
+
+        // 6. update utilization
+        NocomLendingPoolV1::at(context.this_address())
+            ._post_repay(asset_address, amount_to_repay)
+            .enqueue(&mut context);
+    }
+
+
     /// PUBLIC CLEANUP HOOKS ///
 
     #[external("public")]
@@ -333,6 +402,7 @@ pub contract NocomLendingPoolV1 {
     fn _post_withdrawal(
         asset: AztecAddress,
         amount_withdrawn: u128,
+        protocol_fee: u128,
         collateral_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
         collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
         debt_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
@@ -342,6 +412,7 @@ pub contract NocomLendingPoolV1 {
         let mut utilization = storage.utilization.at(asset).read();
         utilization.total_supplied -= amount_withdrawn;
         storage.utilization.at(asset).write(utilization);
+
         // 2. check prices
         let config = storage.config.read();
         assert(collateral_addresses.len() == collateral_asserted_prices.len());
@@ -364,6 +435,15 @@ pub contract NocomLendingPoolV1 {
         let asserted_price = debt_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
+
+        // 3. claim protocol fees to treasury
+        Token::at(asset)
+            .transfer_public_to_public(
+                context.this_address(),
+                config.treasury_address,
+                protocol_fee,
+                0
+            ).call(&mut context);
     }
 
     // todo: combine all prices into one
@@ -402,5 +482,13 @@ pub contract NocomLendingPoolV1 {
         let asserted_price = debt_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
+    }
+
+    #[external("public")]
+    #[internal]
+    fn _post_repay(asset: AztecAddress, amount_repaid: u128) {
+        let mut utilization = storage.utilization.at(asset).read();
+        utilization.total_borrowed -= amount_repaid;
+        storage.utilization.at(asset).write(utilization);
     }
 }
