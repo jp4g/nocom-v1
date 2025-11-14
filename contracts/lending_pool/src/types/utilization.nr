@@ -18,8 +18,8 @@ impl Utilization {
     }
 
     pub fn update(&mut self, borrowed: u128, supplied: u128) {
-        self.total_borrowed += borrowed;
-        self.total_supplied += supplied;
+        self.total_borrowed = borrowed;
+        self.total_supplied = supplied;
     }
 
     pub fn get_utilization_rate(self) -> u128 {
