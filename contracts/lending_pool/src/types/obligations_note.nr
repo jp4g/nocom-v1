@@ -7,34 +7,28 @@ use aztec::{
     },
 };
 
-
+/**
+ * Used to constrain the number of notes acquired from a set
+ */
 #[derive(Deserialize, Eq, Serialize, Packable)]
 #[note]
-pub struct ReceiptNote {
+pub struct ObligationsNote {
     owner: AztecAddress,
     randomness: Field,
-    pub asset: AztecAddress,
-    pub amount: u128,
-    pub epoch: u64
+    pub num_collateral_assets: u32,
+    pub num_borrowed_assets: u32
 }
 
-/**
- * Tracks the amount and epoch for a given asset type (and whether is collateral or borrowed)
- */
-impl ReceiptNote {
+impl ObligationsNote {
     pub fn new(
-        owner: AztecAddress,
-        asset: AztecAddress,
-        amount: u128,
-        epoch: u64,
+        owner: AztecAddress
     ) -> Self {
         let randomness = unsafe { random() };
         Self {
             owner,
-            asset,
             randomness,
-            amount,
-            epoch,
+            num_collateral_assets: 0,
+            num_borrowed_assets: 0,
         }
     }
 }

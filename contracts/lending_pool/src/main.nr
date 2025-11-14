@@ -29,11 +29,13 @@ pub contract NocomLendingPoolV1 {
 
     use crate::{
         types::{
+            asset::Asset,
             config::Config,
+            obligations_note::ObligationsNote,
             receipt_note::ReceiptNote,
-            utilization::Utilization
+            utilization::Utilization,
         },
-        lib::{time, math}
+        // lib::contract_methods::{_combine_receipts}
     };
     use nocom_escrow::NocomEscrowV1;
     use token_contract::Token;
@@ -53,14 +55,19 @@ pub contract NocomLendingPoolV1 {
     // predetermined interest rate per epoch (approx 4% APR)
     pub global FIXED_LEND_RATE_PER_EPOCH: u128 = 1_000_000_746_822_095_197_583_024;
 
+    // limitation of note getting
+    pub global MAX_ASSETS_PER_ACCOUNT: u32 = 4;
+
 
     // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
     struct Storage<Context> {
+        assets: Map<AztecAddress, PublicImmutable<Asset, Context>, Context>,
         config: PublicImmutable<Config, Context>,
-        deposit_receipts: Map<AztecAddress, PrivateMutable<ReceiptNote, Context>, Context>,
-        loan_receipts: Map<AztecAddress, PrivateMutable<ReceiptNote, Context>, Context>,
-        utilization: Map<AztecAddress, PublicMutable<Utilization, Context>, Context>
+        deposit_receipts: Map<AztecAddress, PrivateSet<PrivateMutable<ReceiptNote, Context>, Context>, Context>,
+        loan_receipts: Map<AztecAddress, PrivateSet<PrivateMutable<ReceiptNote, Context>, Context>, Context>,
+        obligations: Map<AztecAddress, PrivateMutable<ObligationsNote, Context>, Context>,
+        utilization: Map<AztecAddress, PublicMutable<Utilization, Context>, Context>,
     //     // collateral_asset: PublicMutable<AztecAddress, Context>,
     //     // stable_coin: PublicMutable<AztecAddress, Context>,
     //     // assets: Map<Field, PublicMutable<Asset, Context>, Context>,
@@ -76,191 +83,174 @@ pub contract NocomLendingPoolV1 {
     #[external("public")]
     fn init(
         oracle: AztecAddress,
-        asset_token: AztecAddress,
-        receipt_token: AztecAddress,
         stable_token: AztecAddress,
-        loan_to_value: u128,
     ) {
-        // 1. initialize config
+        // just initialize config
         let config = Config {
             admin: context.msg_sender().unwrap(),
             oracle_address: oracle,
-            asset_token_address: asset_token,
-            receipt_token_address: receipt_token,
             stable_token_address: stable_token,
-            ltv: loan_to_value,
         };
         storage.config.initialize(config);
+    }
 
-        // 2. initialize single asset utilization
+    #[external("public")]
+    fn register_asset(
+        asset_address: AztecAddress,
+        asset_ltv: u128,
+    ) {
+        // 1. only admin can register assets
+        let config = storage.config.read();
+        assert(context.msg_sender().unwrap() == config.admin);
+
+        // NOTE: do not check if asset already registered - public immutable
+        // todo: switch to delayed public mutable
+        // 2. register asset with LTV
+        storage.assets.at(asset_address).initialize(Asset { asset_ltv });
+
+        // 3. initialize single asset utilization
         // todo: is this necessary?
-        storage.utilization.at(asset_token).write(Utilization::new(0, 0));
+        storage.utilization.at(asset_address).write(Utilization::new(0, 0));
     }
 
-    #[external("private")]
-    fn deposit_private(
-        amount: u128,
-        depositor: AztecAddress
-    ) {
-        // 1. get the config
-        let config = storage.config.read();
+    // #[external("private")]
+    // fn deposit_private(
+    //     amount: u128,
+    //     asset_address: AztecAddress,
+    //     depositor: AztecAddress
+    // ) {
+    //     // 1. get the config
+    //     let config = storage.config.read();
 
-        // 2. determine if there is an existing deposit receipt
-        let (amount_existing, current_epoch) = _combine_receipts(
-            depositor,
-            &mut context,
-            storage.deposit_receipts,
-        );
-        // 3. Add (or update) deposit receipt note
-        let receipt_note = ReceiptNote::new(
-            depositor,
-            amount_existing + amount,
-            current_epoch + 1, // start accumulating next epoch
-        );
-        // todo: handle initialization
-        storage.deposit_receipts.at(depositor).initialize_or_replace(|_| { receipt_note }).emit(
-            depositor,
-            MessageDelivery.CONSTRAINED_ONCHAIN
-        );
+    //     // 2. check supported asset
+    //     // todo: replace with nullifier check for efficiency
+    //     let _ = storage.assets.at(asset_address).read();
+    //     // don't even need to do anything cuz it just constrains is initialized
 
-        // 4. pull in tokens
-        NocomEscrowV1::at(depositor)
-            .deposit_collateral_callback(amount, config.asset_token_address)
-            .call(&mut context);
+    //     // 3. determine if there is an existing deposit receipt
+    //     let (amount_existing, current_epoch) = _combine_receipts(
+    //         depositor,
+    //         &mut context,
+    //         storage.deposit_receipts,
+    //     );
+    //     // 4. Add (or update) deposit receipt note
+    //     let receipt_note = ReceiptNote::new(
+    //         depositor,
+    //         amount_existing + amount,
+    //         current_epoch + 1, // start accumulating next epoch
+    //     );
+    //     // todo: handle initialization
+    //     storage.deposit_receipts.at(depositor).initialize_or_replace(|_| { receipt_note }).emit(
+    //         depositor,
+    //         MessageDelivery.CONSTRAINED_ONCHAIN
+    //     );
 
-        // 5. update utilization
-        NocomLendingPoolV1::at(context.this_address())
-            ._update_utilization(0, amount, config.asset_token_address)
-            .enqueue(&mut context); 
-    }
+    //     // 5. pull in tokens
+    //     NocomEscrowV1::at(depositor)
+    //         .deposit_collateral_callback(amount, asset_address)
+    //         .call(&mut context);
 
-    // TODO: CHECK FOR LIABILITIES
-    #[external("private")]
-    fn withdraw_private(
-        amount: u128,
-        partial_commitment: Field,
-        depositor: AztecAddress
-    ) {
-        // 1. get the config
-        let config = storage.config.read();
+    //     // 6. update utilization
+    //     NocomLendingPoolV1::at(context.this_address())
+    //         ._update_utilization(0, amount, asset_address)
+    //         .enqueue(&mut context); 
+    // }
+
+    // // TODO: CHECK FOR LIABILITIES
+    // #[external("private")]
+    // fn withdraw_private(
+    //     amount: u128,
+    //     partial_commitment: Field,
+    //     depositor: AztecAddress
+    // ) {
+    //     // 1. get the config
+    //     let config = storage.config.read();
     
-        // 2. combine deposit receipts to get total amount + interest
-        let (total_amount, current_epoch) = _combine_receipts(
-            depositor,
-            &mut context,
-            storage.deposit_receipts,
-        );
-        assert(total_amount >= amount);
+    //     // 2. combine deposit receipts to get total amount + interest
+    //     let (total_amount, current_epoch) = _combine_receipts(
+    //         depositor,
+    //         &mut context,
+    //         storage.deposit_receipts,
+    //     );
+    //     assert(total_amount >= amount);
 
-        // 3. create new deposit receipt for remaining amount (if any)
-        let remaining_amount = total_amount - amount;
-        let new_receipt_note = if remaining_amount > 0 {
-            ReceiptNote::new(
-                depositor,
-                remaining_amount,
-                current_epoch + 1,
-            )
-        } else {
-            ReceiptNote::new(depositor, 0, 0)
-        };
-        storage.deposit_receipts.at(depositor).replace(|_| { new_receipt_note }).emit(
-            depositor,
-            MessageDelivery.CONSTRAINED_ONCHAIN
-        );
+    //     // 3. create new deposit receipt for remaining amount (if any)
+    //     let remaining_amount = total_amount - amount;
+    //     let new_receipt_note = if remaining_amount > 0 {
+    //         ReceiptNote::new(
+    //             depositor,
+    //             remaining_amount,
+    //             current_epoch + 1,
+    //         )
+    //     } else {
+    //         ReceiptNote::new(depositor, 0, 0)
+    //     };
+    //     storage.deposit_receipts.at(depositor).replace(|_| { new_receipt_note }).emit(
+    //         depositor,
+    //         MessageDelivery.CONSTRAINED_ONCHAIN
+    //     );
 
-        // 4. transfer tokens out to depositor
-        Token::at(config.asset_token_address)
-            .transfer_public_to_commitment(
-                context.this_address(),
-                partial_commitment,
-                amount,
-                0
-            )
-            .enqueue(&mut context);
+    //     // 4. transfer tokens out to depositor
+    //     Token::at(config.asset_token_address)
+    //         .transfer_public_to_commitment(
+    //             context.this_address(),
+    //             partial_commitment,
+    //             amount,
+    //             0
+    //         )
+    //         .enqueue(&mut context);
 
-        // 5. update utilization
-        NocomLendingPoolV1::at(context.this_address())
-            ._update_utilization(0, 0 - amount, config.asset_token_address)
-            .enqueue(&mut context);
-    }
+    //     // 5. update utilization
+    //     NocomLendingPoolV1::at(context.this_address())
+    //         ._update_utilization(0, 0 - amount, config.asset_token_address)
+    //         .enqueue(&mut context);
+    // }
 
-    /**
-     *
-     * @return (amount, next_epoch)
-     */
-    #[contract_library_method]
-    fn _combine_receipts(
-        depositor: AztecAddress,
-        context: &mut PrivateContext,
-        receipt_storage: Map<AztecAddress, PrivateMutable<ReceiptNote, &mut PrivateContext>, &mut PrivateContext>,
-    ) -> (u128, u64) {
-        // 1. Get the current epoch & enforce delivery
-        let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
-        // 2. check if there is an existing deposit receipt
-        // todo: need to check if note exists first and also replace this after getting it
-        let current_receipt_emission = receipt_storage.at(depositor).get_note();
-        let current_receipt = current_receipt_emission.content.note;
-        // 3. If no existing receipt, return 0
-        if current_receipt.epoch == 0 {
-            (0, current_epoch)
-        } else {
-            // 4. calculate the amount of accrued interest
-            // note: hardcoded 4% rate of interest for now
-            let interest = math::InterestCalculator::new(4)
-            .calculate_accrued_interest(
-                current_receipt.amount,
-                current_receipt.epoch,
-                current_epoch
-            );
-            let total = current_receipt.amount + interest;
-            (total, current_epoch)
-        }
-    }
+    
 
+    // #[external("public")]
+    // #[internal]
+    // fn _update_utilization(
+    //     amount_borrowd: u128,
+    //     amount_supplied: u128,
+    //     asset: AztecAddress,
+    // ) {
+    //     // 1. get utilization
+    //     let mut utilization = storage.utilization.at(asset).read();
+    //     // 2. update the utilization
+    //     utilization.update(amount_borrowd, amount_supplied);
+    //     // 3. write the change publicly
+    //     storage.utilization.at(asset).write(utilization);
+    // }
 
-    #[external("public")]
-    #[internal]
-    fn _update_utilization(
-        amount_borrowd: u128,
-        amount_supplied: u128,
-        asset: AztecAddress,
-    ) {
-        // 1. get utilization
-        let mut utilization = storage.utilization.at(asset).read();
-        // 2. update the utilization
-        utilization.update(amount_borrowd, amount_supplied);
-        // 3. write the change publicly
-        storage.utilization.at(asset).write(utilization);
-    }
-
-    #[external("public")]
-    #[internal]
-    fn _check_price(
-        asset: AztecAddress,
-        asserted_price: u128,
-        check_is_below: bool
-    ) {
-        // todo: figure out private batch checks somehow
-        // 1. get config
-        let config = storage.config.read();
-        // 2. get price from oracle
-        let current_price = PriceFeed::at(config.oracle_address)
-            .get_price(asset.to_field())
-            .view(&mut context)
-            .price;
-        // 3. compare prices
-        if check_is_below {
-            // if checking LTV for liquidation, ensure privately asserted price is
-            // at least current price if not higher. This is unfavorable for
-            // the liquidator but prevents bad liquidations
-            assert(current_price <= asserted_price);
-        } else {
-            // if checking LTV for borrow, ensure privately asserted price is at most the current
-            // price if not lower. This is unfavorable for the borrower but prevents
-            // borrowing at lower than cost
-            assert(current_price >= asserted_price);
-        }
-    }
+    // #[external("public")]
+    // #[internal]
+    // fn _check_price(
+    //     asset: AztecAddress,
+    //     asserted_price: u128,
+    //     check_is_below: bool
+    // ) {
+    //     // todo: figure out private batch checks somehow
+    //     // 1. get config
+    //     let config = storage.config.read();
+    //     // 2. get price from oracle
+    //     let current_price = PriceFeed::at(config.oracle_address)
+    //         .get_price(asset.to_field())
+    //         .view(&mut context)
+    //         .price;
+    //     // 3. compare prices
+    //     if check_is_below {
+    //         // if checking LTV for liquidation, ensure privately asserted price is
+    //         // at least current price if not higher. This is unfavorable for
+    //         // the liquidator but prevents bad liquidations
+    //         assert(current_price <= asserted_price);
+    //     } else {
+    //         // if checking LTV for borrow, ensure privately asserted price is at most the current
+    //         // price if not lower. This is unfavorable for the borrower but prevents
+    //         // borrowing at lower than cost
+    //         assert(current_price >= asserted_price);
+    //     }
+    // }
 
     
 

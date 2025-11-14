@@ -7,8 +7,6 @@ use aztec::{
 };
 
 #[derive(Eq, Serialize, Deserialize, Packable)]
-pub struct Config {
-    pub admin: AztecAddress,
-    pub oracle_address: AztecAddress,
-    pub stable_token_address: AztecAddress,
+pub struct Asset {
+    pub asset_ltv: u128,
 }

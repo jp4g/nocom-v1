@@ -3,6 +3,8 @@ pub struct InterestCalculator {
     epoch_duration: u64,
 }
 
+pub global SCALE: Field = comptime { 10.pow_32(18) };
+
 impl InterestCalculator {
     pub fn new(annual_rate_percent: u64) -> Self {
         // Convert annual % to per-second rate in 1e18
