@@ -99,7 +99,7 @@ pub fn _calculate_health_factor(
     let health_factor = if debt_value == 0 {
         math::U128_MAX
     } else {
-        ((weighted_collateral_value as Field * math::SCALE) / debt_value as Field) as u128
+        (weighted_collateral_value * math::WAD / debt_value)
     };
     (health_factor, collateral_assets, debt_assets)
 }
@@ -136,7 +136,7 @@ pub fn get_receipt_amount(
             ) as Field;
             // determine price
             let price = prices.get_unchecked(i) as Field;
-            let asset_value = amount * price / math::SCALE;
+            let asset_value = amount * price / math::WAD;
             // accumulate total value
             total_value += asset_value as u128;
             // collect asset address
@@ -198,10 +198,10 @@ pub fn get_receipt_amount_ltv_weighted(
             ) as Field;
             // determine price
             let price = prices.get_unchecked(i) as Field;
-            let asset_value = amount * price / math::SCALE;
+            let asset_value = amount * price / math::WAD;
             // apply LTV weighting
             let ltv = ltvs.get_unchecked(i) as Field;
-            let asset_value = asset_value as Field * ltv / math::SCALE;
+            let asset_value = asset_value as Field * ltv / math::WAD;
             // accumulate total value
             total_value += asset_value as u128;
         }
