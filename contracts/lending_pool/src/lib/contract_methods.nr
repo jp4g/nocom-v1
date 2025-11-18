@@ -49,7 +49,7 @@ pub fn _pop_existing_receipt(
     context: &mut PrivateContext,
     asset_address: AztecAddress,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
-    interest_rate: u64,
+    interest_rate: u128,
 ) -> (u128, u128, u64) {
     // 1. Get the current epoch & enforce delivery
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
@@ -63,10 +63,12 @@ pub fn _pop_existing_receipt(
         let current_receipt = receipt_notes.get_unchecked(0);
         // 4. calculate the amount of accrued interest
         // note: hardcoded 4% rate of interest for now
-        let interest = math::InterestCalculator::new(interest_rate).calculate_accrued_interest(
+        let interest = math::calculate_interest(
             current_receipt.amount,
             current_receipt.epoch,
             current_epoch,
+            EPOCH_LENGTH,
+            interest_rate
         );
         (current_receipt.amount, interest, current_epoch)
     }
@@ -109,7 +111,7 @@ pub fn _calculate_health_factor(
 pub fn get_receipt_amount(
     context: &mut PrivateContext,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
-    interest_rate: u64,
+    interest_rate: u128,
     prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. Get all the notes for the depositor
@@ -129,16 +131,19 @@ pub fn get_receipt_amount(
         if i < receipt_notes.len() {
             // calculate total with interest
             let receipt = receipt_notes.get_unchecked(i);
-            let amount = math::InterestCalculator::new(interest_rate).calculate_interest(
+            let interest = math::calculate_interest(
                 receipt.note.amount,
                 receipt.note.epoch,
                 current_epoch,
-            ) as Field;
+                EPOCH_LENGTH,
+                interest_rate,
+            );
+            let total_amount = receipt.note.amount + interest;
             // determine price
-            let price = prices.get_unchecked(i) as Field;
-            let asset_value = amount * price / math::WAD;
+            let price = prices.get_unchecked(i);
+            let asset_value = total_amount * price / math::WAD;
             // accumulate total value
-            total_value += asset_value as u128;
+            total_value += asset_value;
             // collect asset address
             assets.push(receipt.note.asset);
         }
@@ -163,7 +168,7 @@ pub fn get_receipt_amount_ltv_weighted(
     context: &mut PrivateContext,
     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
-    interest_rate: u64,
+    interest_rate: u128,
     prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. Get all the notes for the depositor
@@ -191,17 +196,20 @@ pub fn get_receipt_amount_ltv_weighted(
         if i < receipt_notes.len() {
             // calculate total with interest
             let receipt = receipt_notes.get_unchecked(i);
-            let amount = math::InterestCalculator::new(interest_rate).calculate_interest(
+            let interest = math::calculate_interest(
                 receipt.note.amount,
                 receipt.note.epoch,
                 current_epoch,
-            ) as Field;
+                EPOCH_LENGTH,
+                interest_rate,
+            );
+            let total_amount = receipt.note.amount + interest;
             // determine price
-            let price = prices.get_unchecked(i) as Field;
-            let asset_value = amount * price / math::WAD;
+            let price = prices.get_unchecked(i);
+            let asset_value = total_amount * price / math::WAD;
             // apply LTV weighting
-            let ltv = ltvs.get_unchecked(i) as Field;
-            let asset_value = asset_value as Field * ltv / math::WAD;
+            let ltv = ltvs.get_unchecked(i);
+            let asset_value = asset_value * ltv / math::WAD;
             // accumulate total value
             total_value += asset_value as u128;
         }

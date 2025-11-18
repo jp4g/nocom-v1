@@ -47,7 +47,6 @@ fn apy_to_rate_per_second(apy: u128) -> u128 {
 // dividing with 31536000 (seconds per year).
 // rate must be measured with higher precision than 10^9.
 // we use e18, and rates >= 4% yearly. Otherwise need more precision
-// https://github.com/AztecProtocol/aztec-packages/blob/101f928e84dc040c051793d0d1f47519e0273618/noir-projects/noir-contracts/contracts/app/lending_contract/src/interest_math.nr#L10
 fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
     
     let diff = WAD / BASE;
