@@ -1,5 +1,6 @@
 use aztec::{
     context::{PrivateContext, PublicContext},
+    oracle::debug_log::debug_log_format,
     note::{
         note_getter_options::{NoteGetterOptions, SortOrder},
         note_interface::NoteProperties,
@@ -99,9 +100,13 @@ pub fn _calculate_health_factor(
         get_receipt_amount(context, loan_receipt_storage, BORROW_INTEREST, debt_prices);
     // 3. calculate health factor
     let health_factor = if debt_value == 0 {
-        math::U128_MAX
+        100
     } else {
-        (weighted_collateral_value * math::WAD / debt_value)
+        // need to convert to u256 for this?
+        // or we will try reducing precision since technically only need like 3 decimals
+        let weighted_collateral_value_scaled = weighted_collateral_value / 10.pow_32(15) as u128;
+        let debt_value_scaled = debt_value / 10.pow_32(15) as u128;
+        (weighted_collateral_value * 10.pow_32(3) as u128 / debt_value)
     };
     (health_factor, collateral_assets, debt_assets)
 }
@@ -121,6 +126,7 @@ pub fn get_receipt_amount(
         SortOrder.ASC,
     );
     let receipt_notes = receipt_storage.get_notes(opts);
+    debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
@@ -139,9 +145,11 @@ pub fn get_receipt_amount(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
+            debug_log_format("================\ncurrent value: {0}", [total_amount as Field]);
             // determine price
             let price = prices.get_unchecked(i);
-            let asset_value = total_amount * price / math::PRICE_BASE;
+            debug_log_format("================\ncurrent price: {0}", [price as Field]);
+            let asset_value = total_amount * price / math::PRICE_BASE; // we can probably defer division until end to save on div ops
             // accumulate total value
             total_value += asset_value;
             // collect asset address
@@ -178,6 +186,7 @@ pub fn get_receipt_amount_ltv_weighted(
         SortOrder.ASC,
     );
     let receipt_notes = receipt_storage.get_notes(opts);
+    debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
@@ -204,8 +213,12 @@ pub fn get_receipt_amount_ltv_weighted(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
+            debug_log_format("================\ncurrent value: {0}", [total_amount as Field]);
+
             // determine price
             let price = prices.get_unchecked(i);
+            debug_log_format("================\ncurrent price: {0}", [price as Field]);
+
             let asset_value = total_amount * price / math::PRICE_BASE;
             // apply LTV weighting
             let ltv = ltvs.get_unchecked(i);

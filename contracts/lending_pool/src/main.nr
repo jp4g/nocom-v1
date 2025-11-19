@@ -217,7 +217,7 @@ pub contract NocomLendingPoolV1 {
         );
 
         // 5. Check the health factor
-        assert(health_factor >= math::WAD as u128, "Undercollateralized BOZO, L + LTV RATIO");
+        assert(health_factor >= 10.pow_32(3) as u128, "Undercollateralized BOZO, L + LTV RATIO");
 
         // 6. transfer tokens out to depositor
         Token::at(asset_address)
@@ -286,24 +286,27 @@ pub contract NocomLendingPoolV1 {
         );
 
         // 6. Check the health factor
-        // assert(health_factor >= math::WAD as u128, "Undercollateralized BOZO, L + LTV RATIO");
+        let threshold = 10.pow_32(3) as u128;
+        // todo: health factor scale is off for sure
+        debug_log_format("threshold: {0}\nhealth factor: {1}", [threshold as Field, health_factor as Field]);
+        assert(health_factor >= threshold, "Undercollateralized BOZO, L + LTV RATIO");
 
         // 7. transfer tokens out to depositor
         // Token::at(asset_address)
         //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
         //     .enqueue(&mut context);
 
-        // 8. update utilization and check prices
-        // NocomLendingPoolV1::at(context.this_address())
-        //     ._post_borrow(
-        //         asset_address,
-        //         amount,
-        //         collateral_assets,
-        //         collateral_prices,
-        //         debt_assets,
-        //         debt_asserted_prices,
-        //     )
-        //     .enqueue(&mut context);
+        // // 8. update utilization and check prices
+        NocomLendingPoolV1::at(context.this_address())
+            ._post_borrow(
+                asset_address,
+                amount,
+                collateral_assets,
+                collateral_prices,
+                debt_assets,
+                debt_asserted_prices,
+            )
+            .enqueue(&mut context);
     }
 
     #[external("private")]
