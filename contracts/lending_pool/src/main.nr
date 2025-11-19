@@ -1,7 +1,5 @@
-mod lib;
-mod types;
-
-
+pub mod lib;
+pub mod types;
 
 use dep::aztec::macros::aztec;
 
@@ -9,42 +7,40 @@ use dep::aztec::macros::aztec;
 pub contract NocomLendingPoolV1 {
     use aztec::{
         context::PrivateContext,
-        protocol_types::address::AztecAddress,
-        state_vars::{Map, PrivateSet, PublicImmutable, PublicMutable, PrivateMutable},
-        macros::{
-            functions::{initializer, internal, external, view},
-            storage::storage,
-        },
+        oracle::debug_log::debug_log_format,
+        macros::{functions::{external, initializer, internal, view}, storage::storage},
         messages::message_delivery::MessageDelivery,
-        protocol_types::{
-            traits::{FromField, ToField},
-            constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL
+        note::{
+            note_getter_options::NoteGetterOptions,
+            retrieved_note::RetrievedNote,
+            note_viewer_options::NoteViewerOptions,
         },
-        note::{retrieved_note::RetrievedNote, note_getter_options::NoteGetterOptions}
+        protocol_types::{
+            address::AztecAddress,
+            constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL,
+            traits::{FromField, ToField},
+        },
+        state_vars::{Map, PrivateMutable, PrivateSet, PublicImmutable, PublicMutable},
     };
 
     use crate::{
+        lib::{
+            contract_interfaces::escrow_transfer_callback,
+            contract_methods::{_calculate_health_factor, _pop_existing_receipt},
+            math,
+            validation,
+        },
         types::{
-            config::Config,
-            obligations_note::ObligationsNote,
-            receipt_note::ReceiptNote,
+            config::Config, obligations_note::ObligationsNote, receipt_note::ReceiptNote,
             utilization::Utilization,
         },
-        lib::{
-            contract_methods::{
-                _pop_existing_receipt,
-                _calculate_health_factor,
-            },
-            contract_interfaces::escrow_transfer_callback,
-            validation,
-            math
-        }
     };
+
     // use nocom_escrow::NocomEscrowV1;
     use mock_price_feed::MockPriceFeed;
     use token_contract::Token;
 
-    pub global EPOCH_LENGTH: u64 = 300; // 5 minutes per epoch 
+    pub global EPOCH_LENGTH: u64 = 300; // 5 minutes per epoch
 
     // // predetermined interest rate per epoch (approx 4% APR)
     // pub global FIXED_LEND_RATE_PER_EPOCH: u128 = 1_000_000_746_822_095_197_583_024;
@@ -57,7 +53,6 @@ pub contract NocomLendingPoolV1 {
 
     pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 }; // 10% fee on interest earned
 
-
     // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
     struct Storage<Context> {
@@ -67,11 +62,11 @@ pub contract NocomLendingPoolV1 {
         ltvs: Map<AztecAddress, PublicImmutable<u128, Context>, Context>,
         obligations: Map<AztecAddress, PrivateMutable<ObligationsNote, Context>, Context>,
         utilization: Map<AztecAddress, PublicMutable<Utilization, Context>, Context>,
-    //     // collateral_asset: PublicMutable<AztecAddress, Context>,
-    //     // stable_coin: PublicMutable<AztecAddress, Context>,
-    //     // assets: Map<Field, PublicMutable<Asset, Context>, Context>,
-    //     // collateral: Map<AztecAddress, PublicMutable<u128, Context>, Context>,
-    //     // static_debt: Map<AztecAddress, PublicMutable<u128, Context>, Context>, // abusing keys very heavily
+        //     // collateral_asset: PublicMutable<AztecAddress, Context>,
+        //     // stable_coin: PublicMutable<AztecAddress, Context>,
+        //     // assets: Map<Field, PublicMutable<Asset, Context>, Context>,
+        //     // collateral: Map<AztecAddress, PublicMutable<u128, Context>, Context>,
+        //     // static_debt: Map<AztecAddress, PublicMutable<u128, Context>, Context>, // abusing keys very heavily
     }
 
     // Constructs the contract.
@@ -80,23 +75,20 @@ pub contract NocomLendingPoolV1 {
     fn constructor(
         oracle_address: AztecAddress,
         stable_token_address: AztecAddress,
-        treasury_address: AztecAddress
+        treasury_address: AztecAddress,
     ) {
         // just initialize config
         let config = Config {
             admin: context.msg_sender().unwrap(),
             oracle_address,
             stable_token_address,
-            treasury_address
+            treasury_address,
         };
         storage.config.initialize(config);
     }
 
     #[external("public")]
-    fn register_asset(
-        asset_address: AztecAddress,
-        asset_ltv: u128,
-    ) {
+    fn register_asset(asset_address: AztecAddress, asset_ltv: u128) {
         // 1. only admin can register assets
         let config = storage.config.read();
         assert(context.msg_sender().unwrap() == config.admin);
@@ -115,8 +107,10 @@ pub contract NocomLendingPoolV1 {
 
     #[external("private")]
     fn deposit_private(
-        amount: u128,
         asset_address: AztecAddress,
+        amount: u128,
+        from: AztecAddress,
+        authwit_nonce: Field,
     ) {
         let depositor = context.msg_sender().unwrap();
         // 1. get the config
@@ -133,7 +127,7 @@ pub contract NocomLendingPoolV1 {
             &mut context,
             asset_address,
             storage.deposit_receipts.at(depositor),
-            LEND_INTEREST
+            LEND_INTEREST,
         );
         let amount_existing = principal + interest;
         // 4. Insert new deposit receipt note
@@ -144,23 +138,21 @@ pub contract NocomLendingPoolV1 {
             current_epoch + 1, // start accumulating next epoch
         );
         // 5. Insert the new receipt note
-        storage.deposit_receipts
-            .at(depositor)
-            .insert(receipt_note)
-            .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
+            depositor,
+            MessageDelivery.CONSTRAINED_ONCHAIN,
+        );
+        debug_log_format("==========================================\nshould have deposited note to address {0}", [depositor.to_field()]);
 
         // 6. pull in tokens
-        escrow_transfer_callback(
-            &mut context,
-            context.msg_sender().unwrap(),
-            amount,
-            asset_address,
-        );
+        Token::at(asset_address)
+            .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
+            .call(&mut context);
 
         // 7. update utilization
-        NocomLendingPoolV1::at(context.this_address())
-            ._post_deposit(asset_address, amount)
-            .enqueue(&mut context); 
+        NocomLendingPoolV1::at(context.this_address())._post_deposit(asset_address, amount).enqueue(
+            &mut context,
+        );
     }
 
     /**
@@ -183,13 +175,13 @@ pub contract NocomLendingPoolV1 {
         let depositor = context.msg_sender().unwrap();
         // 1. get the config
         let config = storage.config.read();
-    
+
         // 2. combine deposit receipts to get principal + interest
         let (amount_supplied, interest, current_epoch) = _pop_existing_receipt(
             &mut context,
             asset_address,
             storage.deposit_receipts.at(depositor),
-            LEND_INTEREST
+            LEND_INTEREST,
         );
 
         // 3. determine the amount of interest claimable by the protocol
@@ -206,10 +198,10 @@ pub contract NocomLendingPoolV1 {
                 remaining_amount,
                 current_epoch + 1,
             );
-            storage.deposit_receipts
-                .at(depositor)
-                .insert(receipt_note)
-                .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+            storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
+                depositor,
+                MessageDelivery.CONSTRAINED_ONCHAIN,
+            );
         }
 
         // 4. Compute the health factor after withdrawal and return the assets involved
@@ -229,12 +221,7 @@ pub contract NocomLendingPoolV1 {
 
         // 6. transfer tokens out to depositor
         Token::at(asset_address)
-            .transfer_public_to_commitment(
-                context.this_address(),
-                partial_commitment,
-                amount,
-                0
-            )
+            .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
             .enqueue(&mut context);
 
         // 7. update utilization and check asserted prices
@@ -246,8 +233,9 @@ pub contract NocomLendingPoolV1 {
                 collateral_assets,
                 collateral_prices,
                 debt_assets,
-                debt_asserted_prices,           
-            ).enqueue(&mut context);
+                debt_asserted_prices,
+            )
+            .enqueue(&mut context);
     }
 
     /// BORROWING FUNCTIONS ///
@@ -269,7 +257,7 @@ pub contract NocomLendingPoolV1 {
             &mut context,
             asset_address,
             storage.loan_receipts.at(depositor),
-            BORROW_INTEREST
+            BORROW_INTEREST,
         );
         let amount_existing = principal + interest;
         // 4. Insert new loan receipt note
@@ -280,10 +268,10 @@ pub contract NocomLendingPoolV1 {
             current_epoch + 1, // start accumulating next epoch
         );
         // 5. Insert the new receipt note
-        storage.loan_receipts
-            .at(depositor)
-            .insert(receipt_note)
-            .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage.loan_receipts.at(depositor).insert(receipt_note).emit(
+            depositor,
+            MessageDelivery.CONSTRAINED_ONCHAIN,
+        );
 
         // 6. Compute the health factor after withdrawal and return the assets involved
         // NOTE: this will automatically order assets by ascending address when returned
@@ -302,12 +290,7 @@ pub contract NocomLendingPoolV1 {
 
         // 7. transfer tokens out to depositor
         Token::at(asset_address)
-            .transfer_public_to_commitment(
-                context.this_address(),
-                partial_commitment,
-                amount,
-                0
-            )
+            .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
             .enqueue(&mut context);
 
         // 8. update utilization and check prices
@@ -318,14 +301,17 @@ pub contract NocomLendingPoolV1 {
                 collateral_assets,
                 collateral_prices,
                 debt_assets,
-                debt_asserted_prices,           
-            ).enqueue(&mut context);
+                debt_asserted_prices,
+            )
+            .enqueue(&mut context);
     }
 
     #[external("private")]
     fn repay_private(
-        amount: u128,
         asset_address: AztecAddress,
+        amount: u128,
+        from: AztecAddress,
+        authwit_nonce: Field,
     ) {
         let depositor = context.msg_sender().unwrap();
         // 1. get the config
@@ -336,20 +322,23 @@ pub contract NocomLendingPoolV1 {
             &mut context,
             asset_address,
             storage.loan_receipts.at(depositor),
-            BORROW_INTEREST
+            BORROW_INTEREST,
         );
         let amount_debt = principal + interest;
         assert(amount_debt > 0, "No existing debt to repay");
 
         // 3. determine the exact amount to repay
-        assert(amount_debt >= amount, "Repay amount exceeds debt, set to 0 if you want to fully repay");
+        assert(
+            amount_debt >= amount,
+            "Repay amount exceeds debt, set to 0 if you want to fully repay",
+        );
         let amount_to_repay = if amount == 0 {
             // if amount is set to 0, repay whatever the full debt is
             amount_debt
         } else {
             amount
         };
-        
+
         // 4. Insert new loan receipt note for remaining amount if partial repayment
         let remaining_amount = amount_debt - amount_to_repay;
         if remaining_amount > 0 {
@@ -359,26 +348,23 @@ pub contract NocomLendingPoolV1 {
                 remaining_amount,
                 current_epoch, // start accumulating this epoch
             );
-            storage.loan_receipts
-                .at(depositor)
-                .insert(receipt_note)
-                .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+            storage.loan_receipts.at(depositor).insert(receipt_note).emit(
+                depositor,
+                MessageDelivery.CONSTRAINED_ONCHAIN,
+            );
         }
 
         // 5. pull in tokens for repayment
-        escrow_transfer_callback(
-            &mut context,
-            context.msg_sender().unwrap(),
-            amount,
-            asset_address,
-        );
+        Token::at(asset_address)
+            .transfer_private_to_public(from, context.this_address(), amount_to_repay, authwit_nonce
+                )
+            .call(&mut context);
 
         // 6. update utilization
         NocomLendingPoolV1::at(context.this_address())
             ._post_repay(asset_address, amount_to_repay)
             .enqueue(&mut context);
     }
-
 
     // /// PUBLIC CLEANUP HOOKS ///
 
@@ -418,14 +404,13 @@ pub contract NocomLendingPoolV1 {
             let asserted_price = collateral_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
-        
+
         assert(debt_addresses.len() == debt_asserted_prices.len());
-        let debt_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(debt_addresses)
-            .view(&mut context);
+        let debt_prices =
+            MockPriceFeed::at(config.oracle_address).get_prices(debt_addresses).view(&mut context);
         for i in 0..debt_prices.len() {
             let price = debt_prices.get_unchecked(i);
-        let asserted_price = debt_asserted_prices.get_unchecked(i);
+            let asserted_price = debt_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
 
@@ -435,8 +420,9 @@ pub contract NocomLendingPoolV1 {
                 context.this_address(),
                 config.treasury_address,
                 protocol_fee,
-                0
-            ).call(&mut context);
+                0,
+            )
+            .call(&mut context);
     }
 
     // todo: combine all prices into one
@@ -465,14 +451,13 @@ pub contract NocomLendingPoolV1 {
             let asserted_price = collateral_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
-        
+
         assert(debt_addresses.len() == debt_asserted_prices.len());
-        let debt_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(debt_addresses)
-            .view(&mut context);
+        let debt_prices =
+            MockPriceFeed::at(config.oracle_address).get_prices(debt_addresses).view(&mut context);
         for i in 0..debt_prices.len() {
             let price = debt_prices.get_unchecked(i);
-        let asserted_price = debt_asserted_prices.get_unchecked(i);
+            let asserted_price = debt_asserted_prices.get_unchecked(i);
             assert(price == asserted_price, "Price mismatch");
         }
     }
@@ -484,4 +469,47 @@ pub contract NocomLendingPoolV1 {
         utilization.total_borrowed -= amount_repaid;
         storage.utilization.at(asset).write(utilization);
     }
+
+    #[external("utility")]
+    unconstrained fn get_deposit_receipts(
+        account: AztecAddress,
+    ) -> BoundedVec<ReceiptNote, MAX_ASSETS_PER_ACCOUNT> {
+        let mut retrieved_notes = BoundedVec::new();
+        let notes = storage.deposit_receipts.at(account).view_notes(NoteViewerOptions::new());
+        for i in 0..notes.len() {
+            // assumes that there will never be more than MAX_ASSETS_PER_ACCOUNT notes stored in the set
+            retrieved_notes.push(notes.get_unchecked(i));
+        }
+        retrieved_notes
+    }
+
+    #[external("utility")]
+    unconstrained fn get_loan_receipts(
+        account: AztecAddress,
+    ) -> BoundedVec<ReceiptNote, MAX_ASSETS_PER_ACCOUNT> {
+        let mut retrieved_notes = BoundedVec::new();
+        let notes = storage.loan_receipts.at(account).view_notes(NoteViewerOptions::new());
+        for i in 0..notes.len() {
+            // assumes that there will never be more than MAX_ASSETS_PER_ACCOUNT notes stored in the set
+            retrieved_notes.push(notes.get_unchecked(i));
+        }
+        retrieved_notes
+    }
+
+    // unconstrained fn get_health_factor(
+    //     account: AztecAddress,
+    //     collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    //     debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    // ) -> u128 {
+    //     let (health_factor, _, _) = _calculate_health_factor(
+    //         &mut context,
+    //         storage.deposit_receipts.at(account),
+    //         storage.loan_receipts.at(account),
+    //         storage.ltvs,
+    //         collateral_prices,
+    //         debt_asserted_prices,
+    //     );
+    //     health_factor
+    // }
+
 }

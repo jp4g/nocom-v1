@@ -1,11 +1,10 @@
-use token_contract::Token;
 use aztec::{
     protocol_types::address::AztecAddress,
     test::helpers::{
-        test_environment::TestEnvironment,
-        authwit::add_private_authwit_from_call_interface
-    }
+        authwit::add_private_authwit_from_call_interface, test_environment::TestEnvironment,
+    },
 };
+use token_contract::Token;
 
 /**
  * Ensure a private balance for a given account matches an expected value
@@ -19,7 +18,7 @@ pub unconstrained fn expect_private_balance(
     env: &mut TestEnvironment,
     token_address: AztecAddress,
     account_address: AztecAddress,
-    expected_balance: u128
+    expected_balance: u128,
 ) {
     assert_eq(
         env.simulate_utility(Token::at(token_address).balance_of_private(account_address)),
@@ -43,14 +42,9 @@ pub unconstrained fn private_transfer_authwit(
     caller: AztecAddress,
     from: AztecAddress,
     amount: u128,
-    nonce: Field
+    nonce: Field,
 ) {
-    let call_interface = Token::at(token_address)
-        .transfer_private_to_private(from, caller, amount, nonce);
-    add_private_authwit_from_call_interface(
-        env,
-        from,
-        caller,
-        call_interface
-    );
+    let call_interface =
+        Token::at(token_address).transfer_private_to_private(from, caller, amount, nonce);
+    add_private_authwit_from_call_interface(env, from, caller, call_interface);
 }

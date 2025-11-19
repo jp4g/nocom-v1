@@ -68,7 +68,7 @@ pub fn _pop_existing_receipt(
             current_receipt.epoch,
             current_epoch,
             EPOCH_LENGTH,
-            interest_rate
+            interest_rate,
         );
         (current_receipt.amount, interest, current_epoch)
     }
@@ -85,7 +85,7 @@ pub fn _calculate_health_factor(
     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
     collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
     debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
+    ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. get collateral value
     let (weighted_collateral_value, collateral_assets) = get_receipt_amount_ltv_weighted(
         context,

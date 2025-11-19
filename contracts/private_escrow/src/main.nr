@@ -12,8 +12,8 @@ pub contract NocomEscrowV1 {
         protocol_types::address::AztecAddress,
         state_vars::PrivateImmutable,
     };
-    use token_contract::Token;
     use nocom_pool::NocomLendingPoolV1;
+    use token_contract::Token;
 
     #[storage]
     struct Storage<Context> {
@@ -40,11 +40,7 @@ pub contract NocomEscrowV1 {
      * Supply collateral
      */
     #[external("private")]
-    fn supply_collateral(
-        asset_address: AztecAddress,
-        amount: u128,
-        authwit_nonce: Field
-    ) {
+    fn supply_collateral(asset_address: AztecAddress, amount: u128, authwit_nonce: Field) {
         // 1. get config
         let config = storage.config.get_note();
         let self_address = context.this_address();
@@ -53,19 +49,9 @@ pub contract NocomEscrowV1 {
         // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 3. transfer tokens in privately
-        Token::at(asset_address)
-            .transfer_private_to_private(
-                caller,
-                self_address,
-                amount,
-                authwit_nonce,
-            )
-            .call(&mut context);
-
         // 4. initiate deposit into the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .deposit_private(amount, asset_address)
+            .deposit_private(asset_address, amount, caller, authwit_nonce)
             .call(&mut context);
     }
 
@@ -99,7 +85,7 @@ pub contract NocomEscrowV1 {
                 amount,
                 collateral_prices,
                 debt_prices,
-                partial_note_commitment
+                partial_note_commitment,
             )
             .call(&mut context);
     }
@@ -131,17 +117,13 @@ pub contract NocomEscrowV1 {
                 amount,
                 collateral_prices,
                 debt_prices,
-                partial_note_commitment
+                partial_note_commitment,
             )
             .call(&mut context);
     }
 
     #[external("private")]
-    fn repay(
-        asset_address: AztecAddress,
-        amount: u128,
-        authwit_nonce: Field
-    ) {
+    fn repay(asset_address: AztecAddress, amount: u128, authwit_nonce: Field) {
         // 1. get config
         let config = storage.config.get_note();
         let self_address = context.this_address();
@@ -150,19 +132,9 @@ pub contract NocomEscrowV1 {
         // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 3. transfer tokens in privately
-        Token::at(asset_address)
-            .transfer_private_to_private(
-                caller,
-                self_address,
-                amount,
-                authwit_nonce,
-            )
-            .call(&mut context);
-
-        // 4. initiate repayment into the lending pool
+        // 3. initiate repayment into the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .repay_private(amount, asset_address)
+            .repay_private(asset_address, amount, caller, authwit_nonce)
             .call(&mut context);
     }
 

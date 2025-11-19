@@ -4,8 +4,9 @@ pub struct InterestCalculator {
     epoch_duration: u64,
 }
 
-pub global WAD: u128 = comptime { 10.pow_32(18) as u128}; // 1e18
-pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 }; 
+pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18
+pub global LTV_BASE: u128 = comptime { 10.pow_32(15) as u128 }; // 1e15
+pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 };
 pub global BASE: u128 = comptime { 10.pow_32(9) as u128 }; // 1e9
 pub global SECONDS_PER_YEAR: u128 = comptime { (60 * 60 * 24 * 365) as u128 }; // 31536000 seconds
 
@@ -14,7 +15,7 @@ pub fn calculate_interest(
     start_epoch: u64,
     current_epoch: u64,
     epoch_duration: u64,
-    interest_rate: u128 // example: for 4.2% use 42
+    interest_rate: u128, // example: for 4.2% use 42
 ) -> u128 {
     let rate_per_second = apy_to_rate_per_second(interest_rate);
     let mut interest = principal;
@@ -48,7 +49,6 @@ fn apy_to_rate_per_second(apy: u128) -> u128 {
 // rate must be measured with higher precision than 10^9.
 // we use e18, and rates >= 4% yearly. Otherwise need more precision
 fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
-    
     let diff = WAD / BASE;
     let mut res = BASE;
 
@@ -97,7 +97,7 @@ fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
 // fn test_compute_multiplier_one_epoch_4_percent() {
 //     let rate = apy_to_rate_per_second(40);
 //     let multiplier = compute_multiplier(rate, EPOCH_LENGTH); // 1 epoch = 600 seconds
-    
+
 //     let expected_multiplier = 1000000761;
 //     assert(multiplier == expected_multiplier);
 // }
