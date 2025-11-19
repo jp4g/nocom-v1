@@ -1,7 +1,7 @@
 use aztec::macros::aztec;
 
 pub mod types;
-// pub mod test;
+pub mod test;
 
 #[aztec]
 pub contract NocomEscrowV1 {
@@ -169,8 +169,6 @@ pub contract NocomEscrowV1 {
     /**
      * Borrow collateral
      */
-
-
     #[external("private")]
     fn transfer_callback(amount: u128, asset: AztecAddress) {
         // 1. check caller is pool
