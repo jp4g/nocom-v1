@@ -19,10 +19,12 @@ pub global ZCASH_DECIMALS: u8 = 18;
 
 pub struct TestAccounts {
     pub admin: AztecAddress,
-    pub user: AztecAddress,
+    pub borrower: AztecAddress,
+    pub lender: AztecAddress,
     pub liquidator: AztecAddress,
     pub external: AztecAddress,
-    pub secret: Field,
+    pub borrower_secret: Field,
+    pub lender_secret: Field,
 }
 
 pub struct TestContracts {
@@ -30,7 +32,8 @@ pub struct TestContracts {
     pub usdc: AztecAddress,
     pub lending_pool: AztecAddress,
     pub price_feed: AztecAddress,
-    pub escrow: AztecAddress
+    pub borrower_escrow: AztecAddress,
+    pub lender_escrow: AztecAddress
 }
 
 pub unconstrained fn setup(mint: bool) -> (
@@ -39,14 +42,16 @@ pub unconstrained fn setup(mint: bool) -> (
     TestContracts
 ) {
   let mut env = TestEnvironment::new();
-  let accounts = setup_accounts::<4>(&mut env);
+  let accounts = setup_accounts::<5>(&mut env);
 
   let mut test_accounts = TestAccounts {
       admin: accounts[0],
-      user: accounts[1],
-      liquidator: accounts[2],
-      external: accounts[3],
-      secret: random(),
+      borrower: accounts[1],
+      lender: accounts[2],
+      liquidator: accounts[3],
+      external: accounts[4],
+      borrower_secret: 0,
+      lender_secret: 0,
   };
 
   // deploy token contracts
@@ -78,21 +83,56 @@ pub unconstrained fn setup(mint: bool) -> (
         test_accounts.admin,
   );
   // deploy shared account escrow
-    let (escrow, escrow_secret) = deploy_shared_account_contract(
+    let (borrower_escrow, borrower_escrow_secret) = deploy_shared_account_contract(
         &mut env,
-        test_accounts.admin,
+        test_accounts.borrower,
+        lending_pool
+    );
+    let (lender_escrow, lender_escrow_secret) = deploy_shared_account_contract(
+        &mut env,
+        test_accounts.lender,
         lending_pool
     );
 
   let contracts = TestContracts {
       zcash,
       usdc,
-      lending_pool: lending_pool,
+      lending_pool,
       price_feed,
-      escrow
+      borrower_escrow,
+      lender_escrow
   };
 
-  test_accounts.secret = escrow_secret;
+  test_accounts.borrower_secret = borrower_escrow_secret;
+  test_accounts.lender_secret = lender_escrow_secret;
+
+  // handle mints
+  if mint {
+        // mint USDC to borrower
+        env.call_private(
+            test_accounts.admin,
+            Token::at(usdc).mint_to_private(
+                test_accounts.borrower,
+                1_000_000.pow_32(USDC_DECIMALS as Field) as u128,
+            )
+        );
+
+        // mint ZEC to lender
+        env.call_private(
+            test_accounts.admin,
+            Token::at(zcash).mint_to_private(
+                test_accounts.lender,
+                20_000.pow_32(ZCASH_DECIMALS as Field) as u128,
+            )
+        )
+
+  }
+
+  // set the price feeds
+  env.call_public(
+      test_accounts.admin,
+      MockPriceFeed::at(price_feed).set_price(ucast(zcash), 500 * math::WAD)
+  );
 
   (&mut env, test_accounts, contracts)
 }
