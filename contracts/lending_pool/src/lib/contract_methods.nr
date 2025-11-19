@@ -141,7 +141,7 @@ pub fn get_receipt_amount(
             let total_amount = receipt.note.amount + interest;
             // determine price
             let price = prices.get_unchecked(i);
-            let asset_value = total_amount * price / math::WAD;
+            let asset_value = total_amount * price / math::PRICE_BASE;
             // accumulate total value
             total_value += asset_value;
             // collect asset address
@@ -206,10 +206,10 @@ pub fn get_receipt_amount_ltv_weighted(
             let total_amount = receipt.note.amount + interest;
             // determine price
             let price = prices.get_unchecked(i);
-            let asset_value = total_amount * price / math::WAD;
+            let asset_value = total_amount * price / math::PRICE_BASE;
             // apply LTV weighting
             let ltv = ltvs.get_unchecked(i);
-            let asset_value = asset_value * ltv / math::WAD;
+            let asset_value = asset_value * ltv / math::LTV_BASE;
             // accumulate total value
             total_value += asset_value as u128;
         }

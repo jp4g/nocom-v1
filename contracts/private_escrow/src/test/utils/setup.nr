@@ -12,12 +12,12 @@ use token_contract::Token;
 pub global USDC_NAME: str<31> = "USD Coin\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global USDC_SYMBOL: str<31> = "USDC\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global USDC_DECIMALS: u8 = 18;
-pub global USDC_LTV: u128 = comptime {  95 * 10.pow_32(16) as u128 }; // 0.95 % LTV
+pub global USDC_LTV: u128 = comptime {  95 * 10.pow_32(3) as u128 }; // 0.95 % LTV
 
 pub global ZCASH_NAME: str<31> = "ZCash\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global ZCASH_SYMBOL: str<31> = "ZEC\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global ZCASH_DECIMALS: u8 = 18;
-pub global ZCASH_LTV: u128 = comptime {  80 * 10.pow_32(16) as u128 }; // 0.80 % LTV
+pub global ZCASH_LTV: u128 = comptime {  80 * 10.pow_32(3) as u128 }; // 0.80 % LTV
 
 pub struct TestAccounts {
     pub admin: AztecAddress,
@@ -113,11 +113,11 @@ pub unconstrained fn setup(mint: bool) -> (&mut TestEnvironment, TestAccounts, T
     // set the price feeds
     env.call_public(
         test_accounts.admin,
-        MockPriceFeed::at(price_feed).set_price(zcash, 500.pow_32(USDC_DECIMALS as Field) as u128),
+        MockPriceFeed::at(price_feed).set_price(zcash, 500 * 10.pow_32(4) as u128),
     );
     env.call_public(
         test_accounts.admin,
-        MockPriceFeed::at(price_feed).set_price(usdc, 1.pow_32(USDC_DECIMALS as Field) as u128),
+        MockPriceFeed::at(price_feed).set_price(usdc, 1 * 10.pow_32(4) as u128),
     );
 
     // register assets in the lending pool

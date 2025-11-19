@@ -5,7 +5,8 @@ pub struct InterestCalculator {
 }
 
 pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18
-pub global LTV_BASE: u128 = comptime { 10.pow_32(15) as u128 }; // 1e15
+pub global LTV_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
+pub global PRICE_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
 pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 };
 pub global BASE: u128 = comptime { 10.pow_32(9) as u128 }; // 1e9
 pub global SECONDS_PER_YEAR: u128 = comptime { (60 * 60 * 24 * 365) as u128 }; // 31536000 seconds

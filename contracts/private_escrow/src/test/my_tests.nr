@@ -73,4 +73,45 @@ unconstrained fn e2e_test() {
     );
     debug_log_format("Deposit receipts len: {0}", [deposit_receipts.len() as Field]);
     assert(deposit_receipts.len() == 1);
+
+    // 5. supply usdc collateral as borrower
+    let usdc_supply_amount = 5_000.pow_32(6) as u128;
+    let usdc_nonce = unsafe { random() };
+    let usdc_supply_call_iface = Token::at(contracts.usdc)
+        .transfer_private_to_public(
+            accounts.borrower,
+            contracts.lending_pool,
+            usdc_supply_amount,
+            usdc_nonce
+        );
+    add_private_authwit_from_call_interface(
+        *env,
+        accounts.borrower,
+        contracts.lending_pool,
+        usdc_supply_call_iface
+    );
+    env.call_private(
+        accounts.borrower,
+        NocomEscrowV1::at(contracts.borrower_escrow)
+            .supply_collateral(
+                contracts.usdc,
+                usdc_supply_amount,
+                usdc_nonce
+            )
+    );
+    let prices_collateral: BoundedVec<u128, 4> = BoundedVec::from_array([500.pow_32(18) as u128]);
+    let prices_debt: BoundedVec<u128, 4> = BoundedVec::new();
+    // 7. borrow zec
+    let borrow_amount = 1.pow_32(18) as u128;
+    env.call_private(
+        accounts.borrower,
+        NocomEscrowV1::at(contracts.borrower_escrow)
+            .borrow(
+                accounts.borrower,
+                contracts.zcash,
+                borrow_amount,
+                prices_collateral,
+                prices_debt
+            )
+    );
 }
