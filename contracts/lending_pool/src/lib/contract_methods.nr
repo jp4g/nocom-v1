@@ -1,5 +1,5 @@
 use aztec::{
-    context::{PrivateContext, PublicContext},
+    context::{PrivateContext, UtilityContext},
     oracle::debug_log::debug_log_format,
     note::{
         note_getter_options::{NoteGetterOptions, SortOrder},
@@ -88,6 +88,7 @@ pub fn _calculate_health_factor(
     debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
     ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. get collateral value
+    debug_log_format("CHECKPOINT Before", []);
     let (weighted_collateral_value, collateral_assets) = get_receipt_amount_ltv_weighted(
         context,
         deposit_receipt_storage,
@@ -95,18 +96,21 @@ pub fn _calculate_health_factor(
         LEND_INTEREST,
         collateral_prices,
     );
+    debug_log_format("CHECKPOINT", []);
     // 2. get debt value
     let (debt_value, debt_assets) =
         get_receipt_amount(context, loan_receipt_storage, BORROW_INTEREST, debt_prices);
     // 3. calculate health factor
     let health_factor = if debt_value == 0 {
-        100
+        1000
     } else {
         // need to convert to u256 for this?
         // or we will try reducing precision since technically only need like 3 decimals
         let weighted_collateral_value_scaled = weighted_collateral_value / 10.pow_32(15) as u128;
         let debt_value_scaled = debt_value / 10.pow_32(15) as u128;
-        (weighted_collateral_value * 10.pow_32(3) as u128 / debt_value)
+        debug_log_format("debt_value: {0}, debt_value_scaled: {1}", [debt_value as Field, debt_value_scaled as Field]);
+        debug_log_format("weighted_collateral_value: {0}, weighted_collateral_value_scaled: {1}", [weighted_collateral_value as Field, weighted_collateral_value_scaled as Field]);
+        (weighted_collateral_value_scaled * 10.pow_32(3) as u128 / debt_value_scaled)
     };
     (health_factor, collateral_assets, debt_assets)
 }
@@ -125,14 +129,15 @@ pub fn get_receipt_amount(
         ReceiptNote::properties().asset,
         SortOrder.ASC,
     );
-    let receipt_notes = receipt_storage.get_notes(opts);
+    let receipt_notes: BoundedVec<RetrievedNote<ReceiptNote>, 16> = receipt_storage.get_notes(opts);
     debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
+    debug_log_format("debt price: {0}", [prices.get_unchecked(0) as Field]);
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 3. iterate through and determine values per asset & collect asset addresses
     let mut assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT> = BoundedVec::new();
-    let mut total_value: u128 = 0;
+    let mut total_value_scaled: u128 = 0;
     for i in 0..MAX_ASSETS_PER_ACCOUNT {
         if i < receipt_notes.len() {
             // calculate total with interest
@@ -145,17 +150,18 @@ pub fn get_receipt_amount(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
-            debug_log_format("================\ncurrent value: {0}", [total_amount as Field]);
             // determine price
+            debug_log_format("=debt_amount: {0}", [total_amount as Field]);
             let price = prices.get_unchecked(i);
-            debug_log_format("================\ncurrent price: {0}", [price as Field]);
-            let asset_value = total_amount * price / math::PRICE_BASE; // we can probably defer division until end to save on div ops
+            let asset_value_scaled = total_amount * price; // we can probably defer division until end to save on div ops
             // accumulate total value
-            total_value += asset_value;
+            total_value_scaled += asset_value_scaled;
             // collect asset address
             assets.push(receipt.note.asset);
         }
     }
+    let total_value = total_value_scaled / math::PRICE_BASE;
+    debug_log_format("================\ntotal receipt value: {0}", [total_value as Field]);
     (total_value, assets)
 }
 
@@ -188,6 +194,7 @@ pub fn get_receipt_amount_ltv_weighted(
     let receipt_notes = receipt_storage.get_notes(opts);
     debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
+    debug_log_format("collateral price: {0}", [prices.get_unchecked(    0) as Field]);
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 3. Iterate through, build asset map and ltvs
@@ -200,7 +207,7 @@ pub fn get_receipt_amount_ltv_weighted(
     }
     let ltvs = _get_ltvs(assets, ltv_storage);
     // 4. iterate through and determine values per asset
-    let mut total_value: u128 = 0;
+    let mut total_value_scaled: u128 = 0;
     for i in 0..MAX_ASSETS_PER_ACCOUNT {
         if i < receipt_notes.len() {
             // calculate total with interest
@@ -219,14 +226,15 @@ pub fn get_receipt_amount_ltv_weighted(
             let price = prices.get_unchecked(i);
             debug_log_format("================\ncurrent price: {0}", [price as Field]);
 
-            let asset_value = total_amount * price / math::PRICE_BASE;
+            let asset_value_scaled = total_amount * price;
             // apply LTV weighting
             let ltv = ltvs.get_unchecked(i);
-            let asset_value = asset_value * ltv / math::LTV_BASE;
+            let asset_value_scaled = asset_value_scaled * ltv / math::LTV_BASE;
             // accumulate total value
-            total_value += asset_value as u128;
+            total_value_scaled += asset_value_scaled as u128;
         }
     }
+    let total_value = total_value_scaled / math::PRICE_BASE;
     (total_value, assets)
 }
 
@@ -250,21 +258,3 @@ pub fn filter_to_asset_receipt(
 
     selected
 }
-
-// why doesn't this like context here????
-// #[contract_library_method]
-// pub fn _check_prices(
-//     context: &mut PublicContext,
-//     oracle_address: AztecAddress,
-//     assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-//     asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-// ) {
-//     let prices = MockPriceFeed::at(oracle_address)
-//         .get_prices(assets)
-//         .view(context);
-//     for i in 0..prices.len() {
-//         let price = prices.get_unchecked(i);
-//         let asserted_price = asserted_prices.get_unchecked(i);
-//         assert(price == asserted_price, "Price mismatch");
-//     }
-// }

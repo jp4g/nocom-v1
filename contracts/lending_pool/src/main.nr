@@ -25,7 +25,6 @@ pub contract NocomLendingPoolV1 {
 
     use crate::{
         lib::{
-            contract_interfaces::escrow_transfer_callback,
             contract_methods::{_calculate_health_factor, _pop_existing_receipt},
             math,
             validation,
@@ -142,7 +141,6 @@ pub contract NocomLendingPoolV1 {
             depositor,
             MessageDelivery.CONSTRAINED_ONCHAIN,
         );
-        debug_log_format("==========================================\nshould have deposited note to address {0}", [depositor.to_field()]);
 
         // 6. pull in tokens
         Token::at(asset_address)
@@ -242,6 +240,7 @@ pub contract NocomLendingPoolV1 {
     #[external("private")]
     fn borrow_private(
         asset_address: AztecAddress,
+        recipient_address: AztecAddress,
         amount: u128,
         collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
         debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
@@ -259,6 +258,7 @@ pub contract NocomLendingPoolV1 {
             storage.loan_receipts.at(depositor),
             BORROW_INTEREST,
         );
+        debug_log_format("INTEREST ON BORROW: {0}; PRINCIPAL ON BORROW: {1}", [interest as Field, principal as Field]);
         let amount_existing = principal + interest;
         // 4. Insert new loan receipt note
         let receipt_note = ReceiptNote::new(
@@ -267,6 +267,8 @@ pub contract NocomLendingPoolV1 {
             amount_existing + amount,
             current_epoch + 1, // start accumulating next epoch
         );
+        debug_log_format("AMOUNT: {0}", [amount as Field]);
+        debug_log_format("NEW LOAN RECEIPT AMOUNT: {0}", [(amount_existing + amount) as Field]);
         // 5. Insert the new receipt note
         storage.loan_receipts.at(depositor).insert(receipt_note).emit(
             depositor,
@@ -296,7 +298,7 @@ pub contract NocomLendingPoolV1 {
         //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
         //     .enqueue(&mut context);
         Token::at(asset_address)
-            .transfer_public_to_private(context.this_address(), depositor, amount, 0)
+            .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
             .call(&mut context);
 
         // // 8. update utilization and check prices
@@ -451,15 +453,15 @@ pub contract NocomLendingPoolV1 {
         let config = storage.config.read();
         assert(collateral_addresses.len() == collateral_asserted_prices.len());
 
-        // let collateral_prices = MockPriceFeed::at(config.oracle_address)
-        //     .get_prices(collateral_addresses)
-        //     .view(&mut context);
+        let collateral_prices = MockPriceFeed::at(config.oracle_address)
+            .get_prices(collateral_addresses)
+            .view(&mut context);
 
-        // for i in 0..collateral_prices.len() {
-        //     let price = collateral_prices.get_unchecked(i);
-        //     let asserted_price = collateral_asserted_prices.get_unchecked(i);
-        //     assert(price == asserted_price, "Price mismatch");
-        // }
+        for i in 0..collateral_prices.len() {
+            let price = collateral_prices.get_unchecked(i);
+            let asserted_price = collateral_asserted_prices.get_unchecked(i);
+            assert(price == asserted_price, "Price mismatch");
+        }
 
         assert(debt_addresses.len() == debt_asserted_prices.len());
         let debt_prices =
@@ -507,20 +509,29 @@ pub contract NocomLendingPoolV1 {
         retrieved_notes
     }
 
-    // unconstrained fn get_health_factor(
-    //     account: AztecAddress,
-    //     collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    //     debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    // ) -> u128 {
-    //     let (health_factor, _, _) = _calculate_health_factor(
-    //         &mut context,
-    //         storage.deposit_receipts.at(account),
-    //         storage.loan_receipts.at(account),
-    //         storage.ltvs,
-    //         collateral_prices,
-    //         debt_asserted_prices,
-    //     );
-    //     health_factor
-    // }
+    #[external("utility")]
+    unconstrained fn get_utilization(asset: AztecAddress) -> (u128, u128) {
+        let utilization = storage.utilization.at(asset).read();
+        (utilization.total_supplied, utilization.total_borrowed)
+    }
+
+    // non utility views
+    #[external("private")]
+    #[view]
+    fn get_health_factor(
+        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+    ) -> u128 {
+        let caller = context.msg_sender().unwrap();
+        let (health_factor, _, _) = _calculate_health_factor(
+            &mut context,
+            storage.deposit_receipts.at(caller),
+            storage.loan_receipts.at(caller),
+            storage.ltvs,
+            collateral_prices,
+            debt_asserted_prices,
+        );
+        health_factor
+    }
 
 }
