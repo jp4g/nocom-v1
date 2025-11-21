@@ -117,7 +117,7 @@ pub unconstrained fn setup(mint: bool) -> (&mut TestEnvironment, TestAccounts, T
     );
     env.call_public(
         test_accounts.admin,
-        MockPriceFeed::at(price_feed).set_price(usdc, 1 * 10.pow_32(4) as u128),
+        MockPriceFeed::at(price_feed).set_price(usdc, 10.pow_32(4) as u128),
     );
 
     // register assets in the lending pool

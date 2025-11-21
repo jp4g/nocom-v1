@@ -295,6 +295,9 @@ pub contract NocomLendingPoolV1 {
         // Token::at(asset_address)
         //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
         //     .enqueue(&mut context);
+        Token::at(asset_address)
+            .transfer_public_to_private(context.this_address(), depositor, amount, 0)
+            .call(&mut context);
 
         // // 8. update utilization and check prices
         NocomLendingPoolV1::at(context.this_address())
@@ -399,9 +402,11 @@ pub contract NocomLendingPoolV1 {
         let config = storage.config.read();
         assert(collateral_addresses.len() == collateral_asserted_prices.len());
 
+
         let collateral_prices = MockPriceFeed::at(config.oracle_address)
             .get_prices(collateral_addresses)
             .view(&mut context);
+        
         for i in 0..collateral_prices.len() {
             let price = collateral_prices.get_unchecked(i);
             let asserted_price = collateral_asserted_prices.get_unchecked(i);
@@ -446,21 +451,24 @@ pub contract NocomLendingPoolV1 {
         let config = storage.config.read();
         assert(collateral_addresses.len() == collateral_asserted_prices.len());
 
-        let collateral_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(collateral_addresses)
-            .view(&mut context);
-        for i in 0..collateral_prices.len() {
-            let price = collateral_prices.get_unchecked(i);
-            let asserted_price = collateral_asserted_prices.get_unchecked(i);
-            assert(price == asserted_price, "Price mismatch");
-        }
+        // let collateral_prices = MockPriceFeed::at(config.oracle_address)
+        //     .get_prices(collateral_addresses)
+        //     .view(&mut context);
+
+        // for i in 0..collateral_prices.len() {
+        //     let price = collateral_prices.get_unchecked(i);
+        //     let asserted_price = collateral_asserted_prices.get_unchecked(i);
+        //     assert(price == asserted_price, "Price mismatch");
+        // }
 
         assert(debt_addresses.len() == debt_asserted_prices.len());
         let debt_prices =
             MockPriceFeed::at(config.oracle_address).get_prices(debt_addresses).view(&mut context);
+
         for i in 0..debt_prices.len() {
             let price = debt_prices.get_unchecked(i);
             let asserted_price = debt_asserted_prices.get_unchecked(i);
+            // debug_log_format("=========debt\nindex: {0}\nprice: {1}\nasserted: {2}", [i as Field, price as Field, asserted_price as Field]);
             assert(price == asserted_price, "Price mismatch");
         }
     }

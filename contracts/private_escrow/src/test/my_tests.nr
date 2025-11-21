@@ -99,8 +99,8 @@ unconstrained fn e2e_test() {
                 usdc_nonce
             )
     );
-    let prices_collateral: BoundedVec<u128, 4> = BoundedVec::from_array([500 * 10.pow_32(4) as u128]);
-    let prices_debt: BoundedVec<u128, 4> = BoundedVec::from_array([10.pow_32(4) as u128]);
+    let prices_collateral: BoundedVec<u128, 4> = BoundedVec::from_array([10.pow_32(4) as u128]);
+    let prices_debt: BoundedVec<u128, 4> = BoundedVec::from_array([500 * 10.pow_32(4) as u128]);
     // 7. borrow zec
     let borrow_amount = 1.pow_32(18) as u128;
     env.call_private(
