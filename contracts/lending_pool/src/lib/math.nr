@@ -19,7 +19,7 @@ pub fn calculate_interest(
     interest_rate: u128, // example: for 4.2% use 42
 ) -> u128 {
     let rate_per_second = apy_to_rate_per_second(interest_rate);
-    let mut interest = principal;
+    let mut interest = 0;
     if current_epoch > start_epoch {
         // Convert epochs to seconds
         let start_time = start_epoch * epoch_duration;

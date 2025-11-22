@@ -52,6 +52,8 @@ pub contract NocomLendingPoolV1 {
 
     pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 }; // 10% fee on interest earned
 
+    pub global HEALTH_FACTOR_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
+
     // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
     struct Storage<Context> {
@@ -215,7 +217,7 @@ pub contract NocomLendingPoolV1 {
         );
 
         // 5. Check the health factor
-        assert(health_factor >= 10.pow_32(3) as u128, "Undercollateralized BOZO, L + LTV RATIO");
+        assert(health_factor >= HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
 
         // 6. transfer tokens out to depositor
         Token::at(asset_address)
@@ -288,18 +290,15 @@ pub contract NocomLendingPoolV1 {
         );
 
         // 6. Check the health factor
-        let threshold = 10.pow_32(3) as u128;
-        // todo: health factor scale is off for sure
-        debug_log_format("threshold: {0}\nhealth factor: {1}", [threshold as Field, health_factor as Field]);
-        assert(health_factor >= threshold, "Undercollateralized BOZO, L + LTV RATIO");
+        assert(health_factor >= HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
 
         // 7. transfer tokens out to depositor
-        // Token::at(asset_address)
-        //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
-        //     .enqueue(&mut context);
         Token::at(asset_address)
-            .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
-            .call(&mut context);
+            .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
+            .enqueue(&mut context);
+        // Token::at(asset_address)
+        //     .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
+        //     .call(&mut context);
 
         // // 8. update utilization and check prices
         NocomLendingPoolV1::at(context.this_address())

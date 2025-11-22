@@ -88,7 +88,6 @@ pub fn _calculate_health_factor(
     debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
     ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
     // 1. get collateral value
-    debug_log_format("CHECKPOINT Before", []);
     let (weighted_collateral_value, collateral_assets) = get_receipt_amount_ltv_weighted(
         context,
         deposit_receipt_storage,
@@ -96,7 +95,6 @@ pub fn _calculate_health_factor(
         LEND_INTEREST,
         collateral_prices,
     );
-    debug_log_format("CHECKPOINT", []);
     // 2. get debt value
     let (debt_value, debt_assets) =
         get_receipt_amount(context, loan_receipt_storage, BORROW_INTEREST, debt_prices);
@@ -150,8 +148,8 @@ pub fn get_receipt_amount(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
+            debug_log_format("debt amount: {0}", [total_amount as Field]);
             // determine price
-            debug_log_format("=debt_amount: {0}", [total_amount as Field]);
             let price = prices.get_unchecked(i);
             let asset_value_scaled = total_amount * price; // we can probably defer division until end to save on div ops
             // accumulate total value
@@ -220,11 +218,10 @@ pub fn get_receipt_amount_ltv_weighted(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
-            debug_log_format("================\ncurrent value: {0}", [total_amount as Field]);
+            debug_log_format("collateral amount: {0}", [total_amount as Field]);
 
             // determine price
             let price = prices.get_unchecked(i);
-            debug_log_format("================\ncurrent price: {0}", [price as Field]);
 
             let asset_value_scaled = total_amount * price;
             // apply LTV weighting

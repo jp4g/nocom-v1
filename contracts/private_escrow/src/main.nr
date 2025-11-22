@@ -7,7 +7,7 @@ pub mod test;
 pub contract NocomEscrowV1 {
     use crate::types::config_note::ConfigNote;
     use aztec::{
-        macros::{functions::{external, initializer}, storage::storage},
+        macros::{functions::{external, initializer, view}, storage::storage},
         messages::message_delivery::MessageDelivery,
         protocol_types::address::AztecAddress,
         state_vars::PrivateImmutable,
@@ -151,6 +151,19 @@ pub contract NocomEscrowV1 {
         // 2. transfer tokens in private-to-public
         Token::at(asset).transfer_private_to_public(context.this_address(), config.pool, amount, 0);
     }
+
+    #[external("private")]
+    #[view]
+    fn get_health_factor(
+        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
+        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>
+    ) -> u128 {
+        let config = storage.config.get_note();
+        NocomLendingPoolV1::at(config.pool)
+            .get_health_factor(collateral_prices, debt_prices)
+            .view(&mut context)
+    }
+
 
     // /**
     //  * Fulfil an OTC order as a taker by transfering in the asked tokens and withdrawing the offered tokens
