@@ -41,6 +41,37 @@ pub fn _get_ltvs(
     ltvs
 }
 
+// /*
+//  *
+//  * @return (principal, interest, next_epoch)
+//  */
+// #[contract_library_method]
+// pub fn get_receipt(
+//     context: &mut PrivateContext,
+//     asset_address: AztecAddress,
+//     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+// ) -> Option<ReceiptNote> {
+//     // 1. check if there is an existing deposit receipt and remove it if found
+//     let opts = NoteGetterOptions::with_filter(filter_to_asset_receipt, asset_address).set_limit(1);
+//     let receipt_notes = receipt_storage.get_notes(opts);
+//     // 3. If no existing receipt, return 0
+//     if receipt_notes.len() == 0 {
+//         Option::none()
+//     } else {
+//         let current_receipt = receipt_notes.get_unchecked(0);
+//         // 4. calculate the amount of accrued interest
+//         // note: hardcoded 4% rate of interest for now
+//         let interest = math::calculate_interest(
+//             current_receipt.amount,
+//             current_receipt.epoch,
+//             current_epoch,
+//             EPOCH_LENGTH,
+//             interest_rate,
+//         );
+//         Option::some(current_receipt.note)
+//     }
+// }
+
 /*
  *
  * @return (principal, interest, next_epoch)
@@ -128,9 +159,7 @@ pub fn get_receipt_amount(
         SortOrder.ASC,
     );
     let receipt_notes: BoundedVec<RetrievedNote<ReceiptNote>, 16> = receipt_storage.get_notes(opts);
-    debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
-    debug_log_format("debt price: {0}", [prices.get_unchecked(0) as Field]);
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 3. iterate through and determine values per asset & collect asset addresses
@@ -148,7 +177,6 @@ pub fn get_receipt_amount(
                 interest_rate,
             );
             let total_amount = receipt.note.amount + interest;
-            debug_log_format("debt amount: {0}", [total_amount as Field]);
             // determine price
             let price = prices.get_unchecked(i);
             let asset_value_scaled = total_amount * price; // we can probably defer division until end to save on div ops
@@ -159,9 +187,9 @@ pub fn get_receipt_amount(
         }
     }
     let total_value = total_value_scaled / math::PRICE_BASE;
-    debug_log_format("================\ntotal receipt value: {0}", [total_value as Field]);
     (total_value, assets)
 }
+
 
 /**
  * Get the total value contained in all receipt notes, weighted by LTV's
@@ -190,9 +218,7 @@ pub fn get_receipt_amount_ltv_weighted(
         SortOrder.ASC,
     );
     let receipt_notes = receipt_storage.get_notes(opts);
-    debug_log_format("================\nnum receipt notes: {0}\nnum prices: {1}", [receipt_notes.len() as Field, prices.len() as Field]);
     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
-    debug_log_format("collateral price: {0}", [prices.get_unchecked(    0) as Field]);
     // 2. get current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     // 3. Iterate through, build asset map and ltvs
@@ -235,6 +261,7 @@ pub fn get_receipt_amount_ltv_weighted(
     (total_value, assets)
 }
 
+
 // Ensures that either no note was found or one note matches
 pub fn filter_to_asset_receipt(
     retrieved_notes: [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL],
@@ -255,3 +282,4 @@ pub fn filter_to_asset_receipt(
 
     selected
 }
+

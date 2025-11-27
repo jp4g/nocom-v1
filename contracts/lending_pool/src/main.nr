@@ -52,6 +52,10 @@ pub contract NocomLendingPoolV1 {
 
     pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 }; // 10% fee on interest earned
 
+    pub global LIQUIDATION_BONUS: u128 = 10; // 10% bonus to liquidators
+    pub global PROTOCOL_LIQUIDATION_FEE: u128 = 10; // 10 % of liquidation bonus
+    pub global BONUS_BASE: u128 = 100; // base for liquidation bonus calculations
+
     pub global HEALTH_FACTOR_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
 
     // Storage structure, containing all storage, and specifying what slots they use.
@@ -260,7 +264,6 @@ pub contract NocomLendingPoolV1 {
             storage.loan_receipts.at(depositor),
             BORROW_INTEREST,
         );
-        debug_log_format("INTEREST ON BORROW: {0}; PRINCIPAL ON BORROW: {1}", [interest as Field, principal as Field]);
         let amount_existing = principal + interest;
         // 4. Insert new loan receipt note
         let receipt_note = ReceiptNote::new(
@@ -269,8 +272,6 @@ pub contract NocomLendingPoolV1 {
             amount_existing + amount,
             current_epoch + 1, // start accumulating next epoch
         );
-        debug_log_format("AMOUNT: {0}", [amount as Field]);
-        debug_log_format("NEW LOAN RECEIPT AMOUNT: {0}", [(amount_existing + amount) as Field]);
         // 5. Insert the new receipt note
         storage.loan_receipts.at(depositor).insert(receipt_note).emit(
             depositor,
@@ -373,7 +374,143 @@ pub contract NocomLendingPoolV1 {
             .enqueue(&mut context);
     }
 
-    // /// PUBLIC CLEANUP HOOKS ///
+    #[external("private")]
+    fn liquidate_private(
+        liquidation_asset: AztecAddress,
+        collateral_asset: AztecAddress,
+        amount_to_repay: u128,
+        liquidator: AztecAddress,
+        liquidator_authwit_nonce: Field,
+        collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        collateral_asset_index: u32, // todo: cleaner way
+        liquidation_asset_index: u32,
+    ) {
+        let depositor = context.msg_sender().unwrap();
+        // 1. get the config
+        let config = storage.config.read();
+
+        // 2. check the health factor is below the threshold
+        let (health_factor, collateral_assets, debt_assets) = _calculate_health_factor(
+            &mut context,
+            storage.deposit_receipts.at(depositor),
+            storage.loan_receipts.at(depositor),
+            storage.ltvs,
+            collateral_asserted_prices,
+            debt_asserted_prices,
+        );
+
+        assert(health_factor < HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
+
+
+        // 3. get the specific loan receipt to pay down and collateral to claim
+        let (loan_principal, loan_interest, current_epoch) = _pop_existing_receipt(
+            &mut context,
+            liquidation_asset,
+            storage.loan_receipts.at(depositor),
+            BORROW_INTEREST
+        );
+        let loan_total_amount = loan_principal + loan_interest;
+        let (collateral_principal, collateral_interest, _) = _pop_existing_receipt(
+            &mut context,
+            collateral_asset,
+            storage.deposit_receipts.at(depositor),
+            LEND_INTEREST
+        );
+        let collateral_total_amount = collateral_principal + collateral_interest;
+
+        // 4. check that amount to repay is < or equal to the loan receipt amount
+        assert(amount_to_repay <= loan_total_amount, "Repay amount exceeds debt");
+
+        // 5. repay the loan
+        Token::at(liquidation_asset)
+            .transfer_private_to_public(
+                liquidator,
+                context.this_address(),
+                amount_to_repay,
+                liquidator_authwit_nonce,
+            )
+            .call(&mut context);
+        
+        // 6. if remaining value from loan, reinsert receipt
+        let remaining_loan_amount = loan_total_amount - amount_to_repay;
+        if remaining_loan_amount > 0 {
+            let receipt_note = ReceiptNote::new(
+                depositor,
+                liquidation_asset,
+                remaining_loan_amount,
+                current_epoch, // start accumulating this epoch
+            );
+            storage.loan_receipts.at(depositor).insert(receipt_note).emit(
+                depositor,
+                MessageDelivery.CONSTRAINED_ONCHAIN,
+            );
+        }
+
+        // 7. determine amount of collateral to give to liquidator
+        // 7a. get prices
+        let collateral_price = collateral_asserted_prices.get_unchecked(collateral_asset_index);
+        assert(collateral_assets.get_unchecked(collateral_asset_index as u32) == collateral_asset, "Incorrect collateral index");
+        let loan_price = debt_asserted_prices.get_unchecked(liquidation_asset_index);
+        assert(debt_assets.get_unchecked(liquidation_asset_index as u32) == liquidation_asset, "Incorrect debt index");
+        // 7b. determine corresponding amount of collateral without liq bonus
+        let collateral_equivalent = (amount_to_repay * loan_price)
+            / (collateral_price * math::PRICE_BASE);
+        // 7c. determine liquidation bonus
+        let liquidation_bonus = (collateral_equivalent * LIQUIDATION_BONUS) / BONUS_BASE;
+        // 7d. determine protocol share of bonus 
+        let protocol_fee = (liquidation_bonus * PROTOCOL_LIQUIDATION_FEE) / BONUS_BASE;
+        // 7e. collateral transfer results
+        let total_collateral_liquidated = collateral_equivalent + liquidation_bonus;
+        let collateral_to_liquidator = total_collateral_liquidated - protocol_fee;
+
+        // 8. check that there is enough collateral to cover
+        assert(total_collateral_liquidated <= collateral_total_amount, "Not enough collateral to cover liquidation");
+
+        // 9. if remaining collateral, reinsert receipt
+        let remaining_collateral_amount = collateral_total_amount - total_collateral_liquidated;
+        if remaining_collateral_amount > 0 {
+            let receipt_note = ReceiptNote::new(
+                depositor,
+                collateral_asset,
+                remaining_collateral_amount,
+                current_epoch + 1, // start accumulating next epoch
+            );
+            storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
+                depositor,
+                MessageDelivery.CONSTRAINED_ONCHAIN,
+            );
+        }
+
+        // 10. transfer collateral to liquidator
+        Token::at(collateral_asset)
+            .transfer_public_to_private(
+                context.this_address(),
+                liquidator,
+                collateral_to_liquidator,
+                0,
+            )
+            .call(&mut context);
+        
+        // 11. post liquidation hook
+        NocomLendingPoolV1::at(context.this_address())
+            ._post_liquidation(
+                liquidation_asset,
+                collateral_asset,
+                amount_to_repay,
+                total_collateral_liquidated,
+                collateral_asserted_prices,
+                collateral_assets,
+                debt_asserted_prices,
+                debt_assets,
+                protocol_fee
+            )
+            .enqueue(&mut context);
+
+    }
+
+
+    /// PUBLIC CLEANUP HOOKS ///
 
     #[external("public")]
     #[internal]
@@ -434,6 +571,7 @@ pub contract NocomLendingPoolV1 {
             .call(&mut context);
     }
 
+    
     // todo: combine all prices into one
     #[external("public")]
     fn _post_borrow(
@@ -480,6 +618,66 @@ pub contract NocomLendingPoolV1 {
         let mut utilization = storage.utilization.at(asset).read();
         utilization.total_borrowed -= amount_repaid;
         storage.utilization.at(asset).write(utilization);
+    }
+
+    #[external("public")]
+    #[internal]
+    fn _post_liquidation(
+        loan_asset: AztecAddress,
+        collateral_asset: AztecAddress,
+        amount_repaid: u128,
+        collateral_transferred: u128,
+        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        collateral_assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
+        debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        debt_assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
+        protocol_fee: u128,
+    ) {
+        // 1. update loaned asset utilization
+        let mut utilization = storage.utilization.at(loan_asset).read();
+        utilization.total_borrowed -= amount_repaid;
+        storage.utilization.at(loan_asset).write(utilization);
+
+        // 2. update collateral asset utilization
+        let mut utilization_collateral = storage.utilization.at(collateral_asset).read();
+        utilization_collateral.total_supplied -= collateral_transferred;
+        storage.utilization.at(collateral_asset).write(utilization_collateral);
+
+        // 2. check prices
+        let config = storage.config.read();
+        assert(collateral_assets.len() == collateral_prices.len());
+
+        let collateral_prices = MockPriceFeed::at(config.oracle_address)
+            .get_prices(collateral_assets)
+            .view(&mut context);
+
+        for i in 0..collateral_prices.len() {
+            let price = collateral_prices.get_unchecked(i);
+            let asserted_price = collateral_prices.get_unchecked(i);
+            assert(price == asserted_price, "Price mismatch");
+        }
+
+        assert(debt_assets.len() == debt_prices.len());
+        let debt_prices =
+            MockPriceFeed::at(config.oracle_address).get_prices(debt_assets).view(&mut context);
+
+        for i in 0..debt_prices.len() {
+            let price = debt_prices.get_unchecked(i);
+            let asserted_price = debt_prices.get_unchecked(i);
+            // debug_log_format("=========debt\nindex: {0}\nprice: {1}\nasserted: {2}", [i as Field, price as Field, asserted_price as Field]);
+            assert(price == asserted_price, "Price mismatch");
+        }
+
+        // 3. claim protocol fees to treasury
+        let config = storage.config.read();
+        Token::at(collateral_asset)
+            .transfer_public_to_public(
+                context.this_address(),
+                config.treasury_address,
+                protocol_fee,
+                0,
+            )
+            .call(&mut context);
     }
 
     #[external("utility")]
