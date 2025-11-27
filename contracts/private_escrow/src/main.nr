@@ -139,6 +139,37 @@ pub contract NocomEscrowV1 {
             .call(&mut context);
     }
 
+    #[external("private")]
+    fn liquidate(
+        liquidation_asset: AztecAddress,
+        collateral_asset: AztecAddress,
+        amount_to_repay: u128,
+        liquidation_authwit_nonce: Field,
+        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
+        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
+        collateral_asset_index: u32,
+        debt_asset_index: u32,
+    ) {
+        // 1. get config
+        let config = storage.config.get_note();
+        let caller = context.msg_sender().unwrap();
+
+        // 2. initiate liquidation in the lending pool
+        NocomLendingPoolV1::at(config.pool)
+            .liquidate_private(
+                liquidation_asset,
+                collateral_asset,
+                amount_to_repay,
+                caller,
+                liquidation_authwit_nonce,
+                collateral_prices,
+                debt_prices,
+                collateral_asset_index,
+                debt_asset_index,
+            )
+            .call(&mut context);
+    }
+
     /**
      * Borrow collateral
      */
