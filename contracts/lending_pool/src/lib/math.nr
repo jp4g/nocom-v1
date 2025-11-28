@@ -2,8 +2,47 @@ use crate::lib::constants::{
     EPOCH_LENGTH,
     SECONDS_PER_YEAR,
     WAD,
-    INTEREST_BASE
+    INTEREST_BASE,
+    PRICE_BASE,
+    LTV_RATIO_BASE,
+    LTV_BASE,
 };
+
+pub fn calculate_asset_value(
+    amount: u128,
+    price: u128, // price with PRICE_BASE precision
+) -> u128 {
+    (amount * price) / PRICE_BASE
+}
+
+
+pub fn calculate_ltv_health(
+    loaned_asset_price: u128,
+    loaned_asset_amount: u128,
+    collateral_asset_price: u128,
+    collateral_asset_amount: u128,
+    max_ltv: u128,
+) -> u128 {
+    // 1. calculate the value of the loan and collateral
+    let loan_value = (loaned_asset_amount * loaned_asset_price) / PRICE_BASE;
+    let collateral_value = (collateral_asset_amount * collateral_asset_price) / PRICE_BASE;
+
+    // 2. scale values so they don't overflow u128
+    // todo: investigate u256 (or u252???)
+    // todo: better naming for LTV_RATIO_BASE
+    let collateral_value_scaled = collateral_value / LTV_RATIO_BASE;
+    let loan_value_scaled = loan_value / LTV_RATIO_BASE;
+
+    // 3. determine the current LTV
+    if loan_value_scaled == 0 {
+        0
+    } else {
+        // weight the collateral value by the max 
+        let weighted_collateral_value = (collateral_value_scaled * max_ltv) / LTV_BASE;
+        // finally calculate the LTV
+        (loan_value_scaled * LTV_BASE) / weighted_collateral_value
+    }
+}
 
 pub fn calculate_interest(
     principal: u128,

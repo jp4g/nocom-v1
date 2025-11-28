@@ -28,7 +28,10 @@ use crate::{
         math, time
     },
     NocomLendingPoolV1::self,
-    types::loan_note::LoanNote,
+    types::{
+        loan_note::LoanNote,
+        collateral_note::CollateralNote,
+    },
 };
 
 unconstrained fn check_receipt_initialized(
@@ -43,6 +46,7 @@ unconstrained fn check_receipt_initialized(
     unsafe { check_nullifier_exists(nullifier) }
 }
 
+#[contract_library_method]
 pub fn _get_existing_receipt(
     current_epoch: u64,
     receipt_map_slot: Field,
@@ -58,6 +62,27 @@ pub fn _get_existing_receipt(
     } else {
         Option::some(receipt_storage.get_note().content.note)
     }
+}
+
+
+/**
+ * Get a collateral note's amount and re-emit it
+ * @NOTICE: reading a PrivateMutable destroys the note, so this function handles reemission
+ * @NOTICE: we do not check for initialization on collateral notes - if they don't exist,
+ *          any function calling this should fail
+ *
+ * @param collateral_storage - The storage for the collateral note
+ * @param owner - The owner of the collateral note
+ * @return The amount of collateral the owner has deposited
+ */
+#[contract_library_method]
+pub fn _get_collateral_reemitted(
+    collateral_storage: PrivateMutable<CollateralNote, &mut PrivateContext>,
+    owner: AztecAddress,
+) -> u128 {
+    let emission = collateral_storage.get_note();
+    emission.emit(owner, MessageDelivery.CONSTRAINED_ONCHAIN);
+    emission.content.note.amount
 }
 
 #[contract_library_method]

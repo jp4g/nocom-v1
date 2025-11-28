@@ -14,11 +14,12 @@ pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 };
 // liquidation parameters
 pub global LIQUIDATION_BONUS: u128 = 10; // 10% bonus to liquidators
 pub global PROTOCOL_LIQUIDATION_FEE: u128 = 10; // 10 % of liquidation bonus
-pub global HEALTH_FACTOR_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
+pub global LTV_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
 
 // scaling for computations
 pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18
 pub global BONUS_BASE: u128 = 100; // base for liquidation bonus calculations
+pub global LTV_RATIO_BASE: u128 = comptime { 10.pow_32(14) as u128 }; // base for LTV ratio calculations
 pub global LTV_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // base for LTV calculations
 pub global PRICE_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // base for price feed values
 pub global INTEREST_BASE: u128 = comptime { 10.pow_32(9) as u128 }; // base for interest rate calculations

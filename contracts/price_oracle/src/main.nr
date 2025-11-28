@@ -65,9 +65,9 @@ pub contract MockPriceFeed {
     #[external("public")]
     #[view]
     fn get_prices(
-        asset_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_CALL>,
-    ) -> BoundedVec<u128, MAX_ASSETS_PER_CALL> {
-        let mut prices: BoundedVec<u128, MAX_ASSETS_PER_CALL> = BoundedVec::new();
+        asset_addresses: BoundedVec<AztecAddress, 2>,
+    ) -> BoundedVec<u128, 2> {
+        let mut prices: BoundedVec<u128, 2> = BoundedVec::new();
         for i in 0..asset_addresses.len() {
             if i < asset_addresses.len() {
                 let asset_address = asset_addresses.get_unchecked(i);

@@ -16,7 +16,7 @@ pub struct Config {
     // address of the token lent out
     pub loaned_token_address: AztecAddress,
     // max loan-to-value allowed
-    pub ltv: u128,
+    pub max_ltv: u128,
     // threshold at which positions can be liquidated
     pub liquidation_threshold: u128
 }
