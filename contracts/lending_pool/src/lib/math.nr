@@ -1,15 +1,9 @@
-use crate::NocomLendingPoolV1::EPOCH_LENGTH;
-pub struct InterestCalculator {
-    rate_per_second: u128,
-    epoch_duration: u64,
-}
-
-pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18
-pub global LTV_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
-pub global PRICE_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
-pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 };
-pub global BASE: u128 = comptime { 10.pow_32(9) as u128 }; // 1e9
-pub global SECONDS_PER_YEAR: u128 = comptime { (60 * 60 * 24 * 365) as u128 }; // 31536000 seconds
+use crate::lib::constants::{
+    EPOCH_LENGTH,
+    SECONDS_PER_YEAR,
+    WAD,
+    INTEREST_BASE
+};
 
 pub fn calculate_interest(
     principal: u128,
@@ -30,7 +24,7 @@ pub fn calculate_interest(
         let multiplier = compute_multiplier(rate_per_second, dt);
 
         // Apply multiplier (result is in 1e9)
-        interest = (principal * multiplier) / BASE
+        interest = (principal * multiplier) / INTEREST_BASE
     }
     interest
 }
@@ -50,8 +44,8 @@ fn apy_to_rate_per_second(apy: u128) -> u128 {
 // rate must be measured with higher precision than 10^9.
 // we use e18, and rates >= 4% yearly. Otherwise need more precision
 fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
-    let diff = WAD / BASE;
-    let mut res = BASE;
+    let diff = WAD / INTEREST_BASE;
+    let mut res = INTEREST_BASE;
 
     if dt != 0 {
         let exp_minus_one = (dt - 1) as u128;
@@ -67,7 +61,7 @@ fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
         let third_term = temp * exp_minus_two * base_power_three / 6;
 
         let offset = (dt * rate + second_term + third_term) / diff;
-        res = BASE + offset;
+        res = INTEREST_BASE + offset;
     }
     res
 }
