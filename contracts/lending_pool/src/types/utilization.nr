@@ -1,7 +1,4 @@
-use aztec::{
-    context::PrivateContext,
-    protocol_types::{address::AztecAddress, traits::{Deserialize, Packable, Serialize, ToField}},
-};
+use aztec::protocol_types::traits::{Deserialize, Packable, Serialize, ToField};
 
 #[derive(Eq, Serialize, Deserialize, Packable)]
 pub struct Utilization {

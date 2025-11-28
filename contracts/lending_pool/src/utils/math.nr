@@ -1,16 +1,109 @@
-use crate::NocomLendingPoolV1::EPOCH_LENGTH;
-pub struct InterestCalculator {
-    rate_per_second: u128,
-    epoch_duration: u64,
+use crate::utils::constants::{
+    EPOCH_LENGTH,
+    SECONDS_PER_YEAR,
+    WAD,
+    INTEREST_BASE,
+    PRICE_BASE,
+    LTV_RATIO_BASE,
+    LTV_BASE,
+    PROTOCOL_LIQUIDATION_FEE,
+    LIQUIDATION_BONUS,
+    BONUS_BASE
+};
+
+/**
+ * Approximately calculates the amount withdrawn to determine what share of interest should 
+ * be extracted for a protocol fee
+ * @param total - total amount being withdrawn from
+ * @param amount_to_withdraw - amount being
+ * @return withdraw_ratio - ratio of amount being withdrawn scaled to LTV_BASE
+ */
+pub fn calculate_withdraw_ratio(
+    total: u128,
+    amount_to_withdraw: u128,
+) -> u128 {
+    let total_scaled = total / LTV_RATIO_BASE;
+    let amount_scaled = amount_to_withdraw / LTV_RATIO_BASE;
+    (amount_scaled * LTV_BASE) / total_scaled
 }
 
-pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18
-pub global LTV_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
-pub global PRICE_BASE: u128 = comptime { 10.pow_32(4) as u128 }; // 1e4
-pub global U128_MAX: u128 = comptime { (2.pow_32(128) - 1) as u128 };
-pub global BASE: u128 = comptime { 10.pow_32(9) as u128 }; // 1e9
-pub global SECONDS_PER_YEAR: u128 = comptime { (60 * 60 * 24 * 365) as u128 }; // 31536000 seconds
+/**
+ * Calculates the amount of collateral to be seized during liquidation
+ *
+ * @param debt_amount - amount of debt being repaid (in WAD)
+ * @param debt_price - price of the debt asset (in PRICE_BASE)
+ * @param collateral_price - price of the collateral asset (in PRICE_BASE)
+ * @return (total_collateral_seized, liquidator_collateral_amount, protocol_fee)
+ */
+pub fn calculate_liquidation(
+    debt_amount: u128,
+    debt_price: u128,
+    collateral_price: u128,
+) -> (u128, u128, u128) {
+    // 1. calculate the value of the debt being repaid
+    let debt_value = (debt_amount * debt_price) / PRICE_BASE;
+    // 2. calculate the amount of collateral needed to cover this value
+    let collateral_amount = (debt_value * PRICE_BASE) / collateral_price;
+    // 3. calculate the total liquidation bonus (10% of collateral seized)
+    let total_liquidation_bonus = collateral_amount * LIQUIDATION_BONUS / BONUS_BASE;
+    // 4. calculate the protocol fee on the bonus (10% of bonus)
+    let protocol_fee = total_liquidation_bonus * PROTOCOL_LIQUIDATION_FEE / BONUS_BASE;
+    // 5. get the final amounts for each party
+    let total_collateral_seized = collateral_amount + total_liquidation_bonus;
+    let liquidator_collateral_amount = total_collateral_seized - protocol_fee;
+    (total_collateral_seized, liquidator_collateral_amount, protocol_fee)
+}
 
+
+/**
+ * Calculates the LTV health ratio.
+ * @NOTICE: can be used with liquidation threshold as well (as max LTV)
+ * @NOTICE: should be above LTV_THRESHOLD to be healthy
+ *
+ * @param loaned_asset_price - price of the loaned asset (in PRICE_BASE)
+ * @param loaned_asset_amount - amount of the loaned asset (in WAD)
+ * @param collateral_asset_price - price of the collateral asset (in PRICE_BASE)
+ * @param collateral_asset_amount - amount of the collateral asset (in WAD)
+ * @param max_ltv - maximum loan-to-value ratio allowed (in LTV_BASE)
+ */
+pub fn calculate_ltv_health(
+    loaned_asset_price: u128,
+    loaned_asset_amount: u128,
+    collateral_asset_price: u128,
+    collateral_asset_amount: u128,
+    max_ltv: u128,
+) -> u128 {
+    // 1. calculate the value of the loan and collateral
+    let loan_value = (loaned_asset_amount * loaned_asset_price) / PRICE_BASE;
+    let collateral_value = (collateral_asset_amount * collateral_asset_price) / PRICE_BASE;
+
+    // 2. scale values so they don't overflow u128
+    // todo: investigate u256 (or u252???)
+    // todo: better naming for LTV_RATIO_BASE
+    let collateral_value_scaled = collateral_value / LTV_RATIO_BASE;
+    let loan_value_scaled = loan_value / LTV_RATIO_BASE;
+
+    // 3. determine the current LTV
+    if loan_value_scaled == 0 {
+        0
+    } else {
+        // weight the collateral value by the max 
+        let weighted_collateral_value = (collateral_value_scaled * max_ltv) / LTV_BASE;
+        // finally calculate the LTV
+        (loan_value_scaled * LTV_BASE) / weighted_collateral_value
+    }
+}
+
+/**
+ * Calculate interest accrued on a principal over time using continuous compounding.
+ * @NOTICE: estimates interest - todo: use u256 with RAY math
+ * @param principal - The principal amount (in WAD)
+ * @param start_epoch - The epoch when the interest calculation starts
+ * @param current_epoch - The current epoch
+ * @param epoch_duration - Duration of an epoch in seconds
+ * @param interest_rate - Annual interest rate in basis points (e.g., for 4.2% use 42)
+ * @return interest - The accrued interest amount (in WAD)
+ */
 pub fn calculate_interest(
     principal: u128,
     start_epoch: u64,
@@ -30,7 +123,7 @@ pub fn calculate_interest(
         let multiplier = compute_multiplier(rate_per_second, dt);
 
         // Apply multiplier (result is in 1e9)
-        interest = (principal * multiplier) / BASE
+        interest = (principal * multiplier) / INTEREST_BASE
     }
     interest
 }
@@ -50,8 +143,8 @@ fn apy_to_rate_per_second(apy: u128) -> u128 {
 // rate must be measured with higher precision than 10^9.
 // we use e18, and rates >= 4% yearly. Otherwise need more precision
 fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
-    let diff = WAD / BASE;
-    let mut res = BASE;
+    let diff = WAD / INTEREST_BASE;
+    let mut res = INTEREST_BASE;
 
     if dt != 0 {
         let exp_minus_one = (dt - 1) as u128;
@@ -67,7 +160,7 @@ fn compute_multiplier(rate_per_second: u128, dt: u64) -> u128 {
         let third_term = temp * exp_minus_two * base_power_three / 6;
 
         let offset = (dt * rate + second_term + third_term) / diff;
-        res = BASE + offset;
+        res = INTEREST_BASE + offset;
     }
     res
 }

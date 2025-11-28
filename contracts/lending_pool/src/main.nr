@@ -1,4 +1,4 @@
-pub mod lib;
+pub mod utils;
 pub mod types;
 
 use dep::aztec::macros::aztec;
@@ -6,738 +6,731 @@ use dep::aztec::macros::aztec;
 #[aztec]
 pub contract NocomLendingPoolV1 {
     use aztec::{
-        context::PrivateContext,
         oracle::debug_log::debug_log_format,
         macros::{functions::{external, initializer, internal, view}, storage::storage},
         messages::message_delivery::MessageDelivery,
-        note::{
-            note_getter_options::NoteGetterOptions,
-            retrieved_note::RetrievedNote,
-            note_viewer_options::NoteViewerOptions,
-        },
-        protocol_types::{
-            address::AztecAddress,
-            constants::MAX_NOTE_HASH_READ_REQUESTS_PER_CALL,
-            traits::{FromField, ToField},
-        },
-        state_vars::{Map, PrivateMutable, PrivateSet, PublicImmutable, PublicMutable},
+        note::note_viewer_options::NoteViewerOptions,
+        protocol_types::{address::AztecAddress, traits::ToField},
+        state_vars::{Map, PrivateMutable, PublicImmutable, PublicMutable},
     };
-
     use crate::{
-        lib::{
-            contract_methods::{_calculate_health_factor, _pop_existing_receipt},
-            math,
-            validation,
+        utils::{
+            constants, math, time,
+            contract_methods::{_update_loan, _get_loan_value},
         },
         types::{
-            config::Config, obligations_note::ObligationsNote, receipt_note::ReceiptNote,
-            utilization::Utilization,
+            config::Config, loan_note::LoanNote,
+            utilization::Utilization, collateral_note::CollateralNote
         },
     };
 
-    // use nocom_escrow::NocomEscrowV1;
     use mock_price_feed::MockPriceFeed;
     use token_contract::Token;
 
-    pub global EPOCH_LENGTH: u64 = 300; // 5 minutes per epoch
+    use poseidon::poseidon2::Poseidon2;
 
-    // // predetermined interest rate per epoch (approx 4% APR)
-    // pub global FIXED_LEND_RATE_PER_EPOCH: u128 = 1_000_000_746_822_095_197_583_024;
-
-    // // limitation of note getting
-    pub global MAX_ASSETS_PER_ACCOUNT: u32 = 4;
-
-    pub global LEND_INTEREST: u128 = 40; // hardcoded 4% for supplying
-    pub global BORROW_INTEREST: u128 = 50; // hardcoded 5% for borrowing
-
-    pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 }; // 10% fee on interest earned
-
-    pub global LIQUIDATION_BONUS: u128 = 10; // 10% bonus to liquidators
-    pub global PROTOCOL_LIQUIDATION_FEE: u128 = 10; // 10 % of liquidation bonus
-    pub global BONUS_BASE: u128 = 100; // base for liquidation bonus calculations
-
-    pub global HEALTH_FACTOR_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
-
-    // Storage structure, containing all storage, and specifying what slots they use.
     #[storage]
     struct Storage<Context> {
         config: PublicImmutable<Config, Context>,
-        deposit_receipts: Map<AztecAddress, PrivateSet<ReceiptNote, Context>, Context>,
-        loan_receipts: Map<AztecAddress, PrivateSet<ReceiptNote, Context>, Context>,
-        ltvs: Map<AztecAddress, PublicImmutable<u128, Context>, Context>,
-        obligations: Map<AztecAddress, PrivateMutable<ObligationsNote, Context>, Context>,
-        utilization: Map<AztecAddress, PublicMutable<Utilization, Context>, Context>,
-        //     // collateral_asset: PublicMutable<AztecAddress, Context>,
-        //     // stable_coin: PublicMutable<AztecAddress, Context>,
-        //     // assets: Map<Field, PublicMutable<Asset, Context>, Context>,
-        //     // collateral: Map<AztecAddress, PublicMutable<u128, Context>, Context>,
-        //     // static_debt: Map<AztecAddress, PublicMutable<u128, Context>, Context>, // abusing keys very heavily
+        collateral: Map<AztecAddress, PrivateMutable<CollateralNote, Context>, Context>,
+        loan: Map<AztecAddress, PrivateMutable<LoanNote, Context>, Context>,
+        borrow: Map<AztecAddress, PrivateMutable<LoanNote, Context>, Context>,
+        utilization: PublicMutable<Utilization, Context>,
     }
 
-    // Constructs the contract.
+    /**
+     * Initialize a Nocom Isolated Lending Pool
+     * NOTICE: admin will be used when we update config to be DelayedPublicMutable
+     * @param admin_address - address of admin who can control contract
+     * @param liquidator_pubkey_x - x coordinate of liquidator schnorr pubkey
+     * @param liquidator_pubkey_y - y coordinate of liquidator schnorr pubkey
+     * @param price_oracle_address - address of the price oracle contract
+     * @param treasury_address - address of the treasury where protocol fees accrue
+     * @param collateral_token_address - address of the token supplied as collateral for borrowing
+     * @param loaned_token_address - address of the token lent out
+     * @param max_ltv - max loan-to-value allowed
+     * @param liquidation_threshold - threshold at which positions can be liquidated
+     */
     #[external("public")]
     #[initializer]
     fn constructor(
-        oracle_address: AztecAddress,
-        stable_token_address: AztecAddress,
+        admin_address: AztecAddress,
+        liquidator_pubkey_x: Field,
+        liquidator_pubkey_y: Field,
+        price_oracle_address: AztecAddress,
         treasury_address: AztecAddress,
+        collateral_token_address: AztecAddress,
+        loaned_token_address: AztecAddress,
+        max_ltv: u128,
+        liquidation_threshold: u128,
     ) {
-        // just initialize config
         let config = Config {
-            admin: context.msg_sender().unwrap(),
-            oracle_address,
-            stable_token_address,
+            admin_address,
+            liquidator_pubkey_x,
+            liquidator_pubkey_y,
+            price_oracle_address,
             treasury_address,
+            collateral_token_address,
+            loaned_token_address,
+            max_ltv,
+            liquidation_threshold,
         };
         storage.config.initialize(config);
     }
 
-    #[external("public")]
-    fn register_asset(asset_address: AztecAddress, asset_ltv: u128) {
-        // 1. only admin can register assets
+    /**
+     * Constrains that the liquidator has access to the escrow to perform liquidations
+     * also initializes loan, collateral, and deposit notes with 0 values so we can always assume it exists
+     * @NOTICE this can be done by liquidator or user
+     * @TODO: add nullifier check to each function to collateral/ borrow actions
+     *
+     * @param signature - schnorr signature by liquidator over (pool_address, escrow_address, admin_address)
+     */
+    #[external("private")]
+    fn register(signature: [u8; 64]) {
+        // 1. check the liquidator signature
         let config = storage.config.read();
-        assert(context.msg_sender().unwrap() == config.admin);
+        let caller = context.msg_sender().unwrap();
+        let self_address = context.this_address();
+        config.signed_by_liquidator(self_address, caller, signature);
 
-        // NOTE: do not check if asset already registered - public immutable
-        // todo: switch to delayed public mutable
-        // 2. register asset with LTV
-        storage.ltvs.at(asset_address).initialize(asset_ltv);
+        // 2. compute the registration nullifier and emit
+        // todo: maybe add blinding factor (need to store it in escrow or something for guaranteed DA)
+        //       but not important since escrow contract address is already secret
+        let preimage = [self_address.to_field(), caller.to_field()];
+        let registration_nullifier = Poseidon2::hash(preimage, 2);
+        context.push_nullifier(registration_nullifier);
 
-        // 3. initialize single asset utilization
-        // todo: is this necessary?
-        storage.utilization.at(asset_address).write(Utilization::new(0, 0));
+        // 3. intitialize empty notes for loan and collateral
+        storage.collateral.at(caller).initialize(CollateralNote::new(caller, 0))
+            .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage.loan.at(caller).initialize(LoanNote::new(caller, 0, 0))
+            .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
     }
 
-    /// LENDING FUNCTIONS ///
+    /// PRIVATE LENDING FUNCTIONS ///
 
+    /**
+     * Supply collateral tokens to the pool to enable borrowing
+     *
+     * @param from - the tx entrypoint address which will supply tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to supply
+     * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
+     */
     #[external("private")]
-    fn deposit_private(
-        asset_address: AztecAddress,
-        amount: u128,
-        from: AztecAddress,
-        authwit_nonce: Field,
-    ) {
-        let depositor = context.msg_sender().unwrap();
-        // 1. get the config
+    fn collateralize_private(from: AztecAddress, amount: u128, authwit_nonce: Field) {
+        // 1. get the config and caller
         let config = storage.config.read();
+        let depositor = context.msg_sender().unwrap();
 
-        // 2. check supported asset
-        // todo: replace with nullifier check for efficiency
-        let _ = storage.ltvs.at(asset_address).read();
-        // don't even need to do anything cuz it just constrains is initialized
+        // 2. update or insert a collateral receipt
+        storage.collateral.at(depositor).initialize_or_replace(|existing_receipt| {
+            // if note currently exists, calclulate existing amount with interest
+            let collateral_amount = if existing_receipt.is_some() {
+                existing_receipt.unwrap().amount + amount
+            } else {
+                amount
+            };
+            CollateralNote::new(depositor, collateral_amount)
+        }).emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
 
-        // 3. determine if there is an existing deposit receipt
-        // if so, remove from set and return the amount with interest
-        let (principal, interest, current_epoch) = _pop_existing_receipt(
-            &mut context,
-            asset_address,
-            storage.deposit_receipts.at(depositor),
-            LEND_INTEREST,
-        );
-        let amount_existing = principal + interest;
-        // 4. Insert new deposit receipt note
-        let receipt_note = ReceiptNote::new(
-            depositor,
-            asset_address,
-            amount_existing + amount,
-            current_epoch + 1, // start accumulating next epoch
-        );
-        // 5. Insert the new receipt note
-        storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
-            depositor,
-            MessageDelivery.CONSTRAINED_ONCHAIN,
-        );
-
-        // 6. pull in tokens
-        Token::at(asset_address)
+        // 3. pull in tokens to collateralize
+        Token::at(config.collateral_token_address)
             .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
             .call(&mut context);
-
-        // 7. update utilization
-        NocomLendingPoolV1::at(context.this_address())._post_deposit(asset_address, amount).enqueue(
-            &mut context,
-        );
     }
 
     /**
-     * Withdraw supplied collateral
-     * TODO: pay protocol fees from 10% of interest
+     * Supply loan tokens to the pool to earn interest from borrowers
      *
-     * @param asset_address The address of the token collateral to withdraw
-     * @param amount the amount of the collateral token to withdraw
-     * @param partial_commitment - the partial commitment to transfer tokens to
-     * @param
+     * @param from - the tx entrypoint address which will supply tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to supply
+     * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
      */
     #[external("private")]
-    fn withdraw_private(
-        asset_address: AztecAddress,
-        amount: u128,
-        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        partial_commitment: Field,
-    ) {
-        let depositor = context.msg_sender().unwrap();
+    fn supply_private(from: AztecAddress, amount: u128, authwit_nonce: Field) {
         // 1. get the config
         let config = storage.config.read();
+        let supplier = context.msg_sender().unwrap();
+        let self_address = context.this_address();
 
-        // 2. combine deposit receipts to get principal + interest
-        let (amount_supplied, interest, current_epoch) = _pop_existing_receipt(
+        // 2. update or insert a loan deposit receipt
+        _update_loan(
             &mut context,
-            asset_address,
-            storage.deposit_receipts.at(depositor),
-            LEND_INTEREST,
+            storage.loan.at(supplier),
+            supplier,
+            amount, // add amount
+            0, // sub amount
+            constants::LEND_INTEREST,
         );
 
-        // 3. determine the amount of interest claimable by the protocol
-        let lending_protocol_fee = (interest * LENDING_PROTOCOL_FEE) / math::WAD;
-        let total_available = amount_supplied + interest - lending_protocol_fee;
-        assert(total_available >= amount);
-
-        // 3. create new deposit receipt for remaining amount (if any)
-        let remaining_amount = total_available - amount;
-        if remaining_amount > 0 {
-            let receipt_note = ReceiptNote::new(
-                depositor,
-                asset_address,
-                remaining_amount,
-                current_epoch + 1,
-            );
-            storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
-                depositor,
-                MessageDelivery.CONSTRAINED_ONCHAIN,
-            );
-        }
-
-        // 4. Compute the health factor after withdrawal and return the assets involved
-        // NOTE: this will automatically order assets by ascending address when returned
-        // if the asserted prices are not ordered correctly, the public price check will catch it
-        let (health_factor, collateral_assets, debt_assets) = _calculate_health_factor(
-            &mut context,
-            storage.deposit_receipts.at(depositor),
-            storage.loan_receipts.at(depositor),
-            storage.ltvs,
-            collateral_prices,
-            debt_asserted_prices,
-        );
-
-        // 5. Check the health factor
-        assert(health_factor >= HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
-
-        // 6. transfer tokens out to depositor
-        Token::at(asset_address)
-            .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
-            .enqueue(&mut context);
-
-        // 7. update utilization and check asserted prices
-        NocomLendingPoolV1::at(context.this_address())
-            ._post_withdrawal(
-                asset_address,
-                amount,
-                lending_protocol_fee,
-                collateral_assets,
-                collateral_prices,
-                debt_assets,
-                debt_asserted_prices,
-            )
-            .enqueue(&mut context);
+        // 3. pull in tokens to lend
+        Token::at(config.loaned_token_address)
+            .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
+            .call(&mut context);
+        
+        // 4. update utilization
+        NocomLendingPoolV1::at(self_address)._supply_public(amount).enqueue(&mut context);
     }
 
-    /// BORROWING FUNCTIONS ///
+    /**
+     * Borrow loan tokens against supplied collateral
+     *
+     * @param from - the tx entrypoint address which will receive borrowed tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to borrow
+     * @param partial_note - the partial commitment to transfer borrowed tokens to
+     * @param asserted_collateral_token_price - the price of the collateral token as asserted by the caller
+     * @param asserted_loaned_token_price - the price of the loaned token as asserted by the caller
+     */
     #[external("private")]
     fn borrow_private(
-        asset_address: AztecAddress,
-        recipient_address: AztecAddress,
+        from: AztecAddress,
         amount: u128,
-        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        partial_commitment: Field,
+        partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
     ) {
-        let depositor = context.msg_sender().unwrap();
-        // 1. get the config
+        // 1. get the config and caller
         let config = storage.config.read();
+        let borrower = context.msg_sender().unwrap();
+        let self_address = context.this_address();
 
-        // 2. determine if there is an existing loan receipt
-        // if so, remove from set and return the amount with interest
-        let (principal, interest, current_epoch) = _pop_existing_receipt(
-            &mut context,
-            asset_address,
-            storage.loan_receipts.at(depositor),
-            BORROW_INTEREST,
+        // 2. get the amount of collateral deposited
+        let emission = storage.collateral.at(borrower).get_note();
+        emission.emit(borrower, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let collateral_amount = emission.content.note.amount;
+
+        // 3. get the next epoch
+        let next_epoch = time::get_next_epoch(&mut context, constants::EPOCH_LENGTH);
+
+        // 4. calculate interest on existing borrow receipt if any and update the loan note
+        let borrow_note_emission = storage.borrow.at(borrower).initialize_or_replace(|existing_borrow| {
+            let mut total_borrowed = amount;
+            if existing_borrow.is_some() {
+                let existing_borrow_note = existing_borrow.unwrap_unchecked();
+                let existing_borrow_principal = existing_borrow_note.amount;
+                let existing_borrow_epoch = existing_borrow_note.epoch;
+                let interest = math::calculate_interest(
+                    existing_borrow_principal,
+                    existing_borrow_epoch,
+                    next_epoch,
+                    constants::EPOCH_LENGTH,
+                    constants::BORROW_INTEREST,
+                );
+                total_borrowed += existing_borrow_principal + interest
+            };
+            LoanNote::new(borrower, total_borrowed, next_epoch)
+        });
+        let borrowed_amount = borrow_note_emission.content.note.amount;
+        borrow_note_emission.emit(borrower, MessageDelivery.CONSTRAINED_ONCHAIN);
+
+        // 5. check the LTV is not exceeded
+        let ltv_health = math::calculate_ltv_health(
+            asserted_loaned_token_price,
+            borrowed_amount,
+            asserted_collateral_token_price,
+            collateral_amount,
+            config.max_ltv,
         );
-        let amount_existing = principal + interest;
-        // 4. Insert new loan receipt note
-        let receipt_note = ReceiptNote::new(
-            depositor,
-            asset_address,
-            amount_existing + amount,
-            current_epoch + 1, // start accumulating next epoch
+        assert(
+            ltv_health >= constants::LTV_THRESHOLD,
+            "LTV exceeded, cannot borrow"
         );
-        // 5. Insert the new receipt note
-        storage.loan_receipts.at(depositor).insert(receipt_note).emit(
-            depositor,
-            MessageDelivery.CONSTRAINED_ONCHAIN,
-        );
-
-        // 6. Compute the health factor after withdrawal and return the assets involved
-        // NOTE: this will automatically order assets by ascending address when returned
-        // if the asserted prices are not ordered correctly, the public price check will catch it
-        let (health_factor, collateral_assets, debt_assets) = _calculate_health_factor(
-            &mut context,
-            storage.deposit_receipts.at(depositor),
-            storage.loan_receipts.at(depositor),
-            storage.ltvs,
-            collateral_prices,
-            debt_asserted_prices,
-        );
-
-        // 6. Check the health factor
-        assert(health_factor >= HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
-
-        // 7. transfer tokens out to depositor
-        // Token::at(asset_address)
-        //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
-        //     .enqueue(&mut context);
-        Token::at(asset_address)
-            .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
-            .call(&mut context);
-
-        // // 8. update utilization and check prices
-        NocomLendingPoolV1::at(context.this_address())
-            ._post_borrow(
-                asset_address,
+        
+        // 6. update utilization and check prices
+        NocomLendingPoolV1::at(self_address)
+            ._borrow_public(
                 amount,
-                collateral_assets,
-                collateral_prices,
-                debt_assets,
-                debt_asserted_prices,
+                asserted_collateral_token_price,
+                asserted_loaned_token_price,
+                partial_note,
             )
             .enqueue(&mut context);
     }
 
+    /**
+     * Withdraw supplied collateral from the pool
+     *
+     * @param to - the tx entrypoint address which will receive withdrawn tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to withdraw
+     * @param partial_note - the partial commitment to transfer withdrawn tokens to
+     * @param asserted_collateral_token_price - the price of the collateral token as asserted in
+     * @param asserted_loaned_token_price - the price of the loaned token as asserted in
+     */
     #[external("private")]
-    fn repay_private(
-        asset_address: AztecAddress,
+    fn withdraw_collateral_private(
+        to: AztecAddress,
         amount: u128,
+        partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
+    ) {
+        // 1. get the config and caller
+        let config = storage.config.read();
+        let withdrawer = context.msg_sender().unwrap();
+        let self_address = context.this_address();
+
+        // 2. get the next epoch
+        let next_epoch = time::get_next_epoch(&mut context, constants::EPOCH_LENGTH);
+
+        // 3. get the current borrow amount principal
+        let borrow_emission = storage.borrow.at(withdrawer).get_note();
+        borrow_emission.emit(withdrawer, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let borrow_principal = borrow_emission.content.note.amount;
+
+        // 4. calculate total liability with interest
+        let borrow_epoch = borrow_emission.content.note.epoch;
+        let borrow_interest = math::calculate_interest(
+            borrow_principal,
+            borrow_epoch,
+            next_epoch,
+            constants::EPOCH_LENGTH,
+            constants::BORROW_INTEREST,
+        ); // NOTE: will just be 0 if principal is 0
+        let amount_borrowed = borrow_principal + borrow_interest;
+
+        // 5. update the amount of collateral supplied while checking the LTV health
+        let collateral_emission = storage.collateral.at(withdrawer).replace(|existing_receipt| {
+            let new_collateral_amount = existing_receipt.amount - amount;
+            let ltv_health = math::calculate_ltv_health(
+                asserted_loaned_token_price,
+                amount_borrowed,
+                asserted_collateral_token_price,
+                new_collateral_amount,
+                config.max_ltv,
+            );
+            assert(
+                ltv_health >= constants::LTV_THRESHOLD,
+                "LTV exceeded, cannot withdraw collateral"
+            );
+            CollateralNote::new(withdrawer, new_collateral_amount)
+        });
+        
+        // 6. transfer collateral tokens to withdrawer and check prices
+        NocomLendingPoolV1::at(self_address)
+            ._withdraw_collateral_public(
+                asserted_collateral_token_price,
+                asserted_loaned_token_price,
+                amount,
+                partial_note,
+            )
+            .enqueue(&mut context);
+        
+    }
+
+    /**
+     * Withdraw supplied loan tokens from the pool
+     * @TODO: add amount = 0 to withdraw all tokens
+     *
+     * @param to - the tx entrypoint address which will receive withdrawn tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to withdraw
+     * @param partial_note - the partial commitment to transfer withdrawn tokens to
+     */
+    #[external("private")]
+    fn withdraw_loan_private(
+        amount: u128,
+        partial_note: Field
+    ) {
+        // 1. get the config and caller
+        let config = storage.config.read();
+        let lender = context.msg_sender().unwrap();
+        let self_address = context.this_address();
+
+        // 2. determine the loan note principal and interest
+        let (principal, interest) = _get_loan_value(
+            &mut context,
+            storage.loan.at(lender)
+        );
+
+        // 3. determine the ratio being withdrawn to find protocol fee on interest
+        let withdraw_ratio = math::calculate_withdraw_ratio(
+            principal + interest,
+            amount,
+        );
+
+        // 4. calculate protocol fee on interest
+        let interest_protocol_fee = (interest * withdraw_ratio) / constants::LTV_BASE;
+
+        // 5. determine amount to send to lender after fee
+        let amount_to_lender = amount - interest_protocol_fee;
+
+        // 6. update the loan note
+        // NOTE: cannot get interest from inside this lambda so we have to read the note in step 2,
+        //       re-emit it, then read again during replace. TODO: optimize this if possible
+        storage.loan.at(lender).replace(|existing_loan| {
+            // constrains amount <= total assets claimable
+            let new_principal = existing_loan.amount - amount; 
+            LoanNote::new(lender, new_principal, existing_loan.epoch)
+        });
+
+        // 7. update utilization and take protocol fee
+        NocomLendingPoolV1::at(self_address)
+            ._withdraw_public(amount, interest_protocol_fee, partial_note)
+            .enqueue(&mut context);
+    }
+
+    /**
+     * Repay borrowed loan tokens to the pool
+     *
+     * @param from - the tx entrypoint address which will repay tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to repay
+     * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
+     */
+    #[external("private")]
+    fn repay_loan_private(
         from: AztecAddress,
+        amount: u128,
         authwit_nonce: Field,
     ) {
-        let depositor = context.msg_sender().unwrap();
-        // 1. get the config
+        // 1. get the config and caller
         let config = storage.config.read();
+        let repayer = context.msg_sender().unwrap();
+        let self_address = context.this_address();
 
-        // 2. determine if there is an existing debt to pay for this asset
-        let (principal, interest, current_epoch) = _pop_existing_receipt(
+        // 2. update borrow note
+        // NOTICE: will constrain amount <= total owed in _update_loan
+        _update_loan(
             &mut context,
-            asset_address,
-            storage.loan_receipts.at(depositor),
-            BORROW_INTEREST,
+            storage.borrow.at(repayer),
+            repayer,
+            0, // add amount
+            amount, // sub amount
+            constants::BORROW_INTEREST,
         );
-        let amount_debt = principal + interest;
-        assert(amount_debt > 0, "No existing debt to repay");
 
-        // 3. determine the exact amount to repay
-        assert(
-            amount_debt >= amount,
-            "Repay amount exceeds debt, set to 0 if you want to fully repay",
-        );
-        let amount_to_repay = if amount == 0 {
-            // if amount is set to 0, repay whatever the full debt is
-            amount_debt
-        } else {
-            amount
-        };
-
-        // 4. Insert new loan receipt note for remaining amount if partial repayment
-        let remaining_amount = amount_debt - amount_to_repay;
-        if remaining_amount > 0 {
-            let receipt_note = ReceiptNote::new(
-                depositor,
-                asset_address,
-                remaining_amount,
-                current_epoch, // start accumulating this epoch
-            );
-            storage.loan_receipts.at(depositor).insert(receipt_note).emit(
-                depositor,
-                MessageDelivery.CONSTRAINED_ONCHAIN,
-            );
-        }
-
-        // 5. pull in tokens for repayment
-        Token::at(asset_address)
-            .transfer_private_to_public(from, context.this_address(), amount_to_repay, authwit_nonce
-                )
+        // 3. pull in tokens to repay
+        Token::at(config.loaned_token_address)
+            .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
             .call(&mut context);
-
-        // 6. update utilization
-        NocomLendingPoolV1::at(context.this_address())
-            ._post_repay(asset_address, amount_to_repay)
-            .enqueue(&mut context);
+        
+        // 4. update utilization
+        NocomLendingPoolV1::at(self_address)._repay_public(amount).enqueue(&mut context);
     }
 
     #[external("private")]
     fn liquidate_private(
-        liquidation_asset: AztecAddress,
-        collateral_asset: AztecAddress,
         amount_to_repay: u128,
-        liquidator: AztecAddress,
-        liquidator_authwit_nonce: Field,
-        collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        collateral_asset_index: u32, // todo: cleaner way
-        liquidation_asset_index: u32,
+        liquidator_address: AztecAddress,
+        liquidation_authwit_nonce: Field,
+        liquidator_partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
     ) {
-        let depositor = context.msg_sender().unwrap();
-        // 1. get the config
+        // 1. get the config and caller
         let config = storage.config.read();
+        let liquidator = context.msg_sender().unwrap();
+        let self_address = context.this_address();
 
-        // 2. check the health factor is below the threshold
-        let (health_factor, collateral_assets, debt_assets) = _calculate_health_factor(
-            &mut context,
-            storage.deposit_receipts.at(depositor),
-            storage.loan_receipts.at(depositor),
-            storage.ltvs,
-            collateral_asserted_prices,
-            debt_asserted_prices,
+        // 2. get the next epoch
+        let next_epoch = time::get_next_epoch(&mut context, constants::EPOCH_LENGTH);
+
+        // 3. get the current borrow amount principal
+        let borrow_emission = storage.borrow.at(liquidator).get_note();
+        borrow_emission.emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let borrow_principal = borrow_emission.content.note.amount;
+
+        // 4. calculate total liability with interest
+        let borrow_epoch = borrow_emission.content.note.epoch;
+        let borrow_interest = math::calculate_interest(
+            borrow_principal,
+            borrow_epoch,
+            next_epoch,
+            constants::EPOCH_LENGTH,
+            constants::BORROW_INTEREST,
+        ); // NOTE: will just be 0 if principal is 0
+        let total_borrowed = borrow_principal + borrow_interest;
+
+        // 5. determine the amount of collateral deposited
+        let collateral_emission = storage.collateral.at(liquidator).get_note();
+        collateral_emission.emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let collateral_amount = collateral_emission.content.note.amount;
+
+        // 6. check that position is under liquidation threshold
+        let ltv_health = math::calculate_ltv_health(
+            asserted_loaned_token_price,
+            total_borrowed,
+            asserted_collateral_token_price,
+            collateral_amount,
+            config.liquidation_threshold,
+        );
+        assert(
+            ltv_health < constants::LTV_THRESHOLD,
+            "Position healthy, cannot liquidate"
         );
 
-        assert(health_factor < HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
-
-
-        // 3. get the specific loan receipt to pay down and collateral to claim
-        let (loan_principal, loan_interest, current_epoch) = _pop_existing_receipt(
-            &mut context,
-            liquidation_asset,
-            storage.loan_receipts.at(depositor),
-            BORROW_INTEREST
+        // 7. check that amount to repay is <= 50% of total borrowed
+        assert(
+            amount_to_repay * 2 <= total_borrowed,
+            "Cannot repay more than 50% of total borrowed in liquidation"
         );
-        let loan_total_amount = loan_principal + loan_interest;
-        let (collateral_principal, collateral_interest, _) = _pop_existing_receipt(
-            &mut context,
-            collateral_asset,
-            storage.deposit_receipts.at(depositor),
-            LEND_INTEREST
-        );
-        let collateral_total_amount = collateral_principal + collateral_interest;
 
-        // 4. check that amount to repay is < or equal to the loan receipt amount
-        debug_log_format("Amount to repay: {0}, loan total amount: {1}", [amount_to_repay as Field, loan_total_amount as Field]);
-        assert(amount_to_repay <= loan_total_amount, "Repay amount exceeds debt");
+        // 8. calculate the amount of collateral to seize to match loan repayment
+        let (total_collateral_seized, liquidator_collateral_amount, protocol_fee) =
+            math::calculate_liquidation(
+                amount_to_repay,
+                asserted_loaned_token_price,
+                asserted_collateral_token_price,
+            );
+        
+        // 9. update borrow note
+        let remaining_loan_amount = total_borrowed - amount_to_repay;
+        let current_epoch = next_epoch - 1;
+        storage.borrow.at(liquidator).replace(|existing_loan| {
+            LoanNote::new(liquidator, remaining_loan_amount, current_epoch)
+        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
 
-        debug_log_format("Sending repay from liquidator: {0}", [amount_to_repay as Field]);
-        // 5. repay the loan
-        Token::at(liquidation_asset)
+        // 10. update collateral note
+        let remaining_collateral_amount = collateral_amount - total_collateral_seized;
+        storage.collateral.at(liquidator).replace(|existing_collateral| {
+            CollateralNote::new(liquidator, remaining_collateral_amount)
+        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
+
+        // 11. pull in tokens to repay
+        // NOTE: this could be public but we leave it private so liquidator can prepare for liquidation
+        //       without leaking that they are acquiring the funds to do so
+        Token::at(config.loaned_token_address)
             .transfer_private_to_public(
-                liquidator,
+                liquidator_address,
                 context.this_address(),
                 amount_to_repay,
-                liquidator_authwit_nonce,
-            )
-            .call(&mut context);
+                liquidation_authwit_nonce
+            ).call(&mut context);
         
-        // 6. if remaining value from loan, reinsert receipt
-        let remaining_loan_amount = loan_total_amount - amount_to_repay;
-        if remaining_loan_amount > 0 {
-            let receipt_note = ReceiptNote::new(
-                depositor,
-                liquidation_asset,
-                remaining_loan_amount,
-                current_epoch, // start accumulating this epoch
-            );
-            storage.loan_receipts.at(depositor).insert(receipt_note).emit(
-                depositor,
-                MessageDelivery.CONSTRAINED_ONCHAIN,
-            );
-        }
-
-        // 7. determine amount of collateral to give to liquidator
-        // 7a. get prices
-        let collateral_price = collateral_asserted_prices.get_unchecked(collateral_asset_index);
-        assert(collateral_assets.get_unchecked(collateral_asset_index as u32) == collateral_asset, "Incorrect collateral index");
-        let loan_price = debt_asserted_prices.get_unchecked(liquidation_asset_index);
-        assert(debt_assets.get_unchecked(liquidation_asset_index as u32) == liquidation_asset, "Incorrect debt index");
-        // 7b. determine corresponding amount of collateral without liq bonus
-        let collateral_equivalent = (amount_to_repay * loan_price)
-            / (collateral_price * math::PRICE_BASE);
-        // 7c. determine liquidation bonus
-        let liquidation_bonus = (collateral_equivalent * LIQUIDATION_BONUS) / BONUS_BASE;
-        // 7d. determine protocol share of bonus 
-        let protocol_fee = (liquidation_bonus * PROTOCOL_LIQUIDATION_FEE) / BONUS_BASE;
-        // 7e. collateral transfer results
-        let total_collateral_liquidated = collateral_equivalent + liquidation_bonus;
-        let collateral_to_liquidator = total_collateral_liquidated - protocol_fee;
-        debug_log_format("Collateral price: {0}, loan price: {1}", [collateral_price as Field, loan_price as Field]);
-        debug_log_format("Collateral equivalent: {0}", [collateral_equivalent as Field]);
-        debug_log_format("Liquidation bonus: {0}", [liquidation_bonus as Field]);
-        debug_log_format("Total collateral liquidated: {0}", [total_collateral_liquidated as Field]);
-        debug_log_format("Protocol fee: {0}", [protocol_fee as Field]);
-        // 8. check that there is enough collateral to cover
-        assert(total_collateral_liquidated <= collateral_total_amount, "Not enough collateral to cover liquidation");
-
-        // 9. if remaining collateral, reinsert receipt
-        let remaining_collateral_amount = collateral_total_amount - total_collateral_liquidated;
-        if remaining_collateral_amount > 0 {
-            let receipt_note = ReceiptNote::new(
-                depositor,
-                collateral_asset,
-                remaining_collateral_amount,
-                current_epoch + 1, // start accumulating next epoch
-            );
-            storage.deposit_receipts.at(depositor).insert(receipt_note).emit(
-                depositor,
-                MessageDelivery.CONSTRAINED_ONCHAIN,
-            );
-        }
-
-        debug_log_format("Sending collateral to liquidator: {0}", [collateral_to_liquidator as Field]);
-        debug_log_format("protocol fee: {0}", [protocol_fee as Field]);
-        debug_log_format("total collateral liquidated: {0}", [total_collateral_liquidated as Field]);
-        // 10. transfer collateral to liquidator
-        Token::at(collateral_asset)
-            .transfer_public_to_private(
-                context.this_address(),
-                liquidator,
-                collateral_to_liquidator,
-                0,
-            )
-            .call(&mut context);
-        
-        // 11. post liquidation hook
-        NocomLendingPoolV1::at(context.this_address())
-            ._post_liquidation(
-                liquidation_asset,
-                collateral_asset,
-                amount_to_repay,
-                total_collateral_liquidated,
-                collateral_asserted_prices,
-                collateral_assets,
-                debt_asserted_prices,
-                debt_assets,
-                protocol_fee
-            )
-            .enqueue(&mut context);
-
+        // 12. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
+        NocomLendingPoolV1::at(self_address)
+            ._liquidate_public(
+                liquidator_collateral_amount,
+                protocol_fee,
+                liquidator_partial_note,
+                asserted_loaned_token_price,
+                asserted_collateral_token_price,
+            ).enqueue(&mut context);
     }
 
+    /// PUBLIC INTERNAL ///
 
-    /// PUBLIC CLEANUP HOOKS ///
-
+    /**
+     * Update total supplied in utilization
+     *
+     * @param amount_supplied - the amount of tokens supplied
+     */
     #[external("public")]
     #[internal]
-    fn _post_deposit(asset: AztecAddress, amount_supplied: u128) {
-        let mut utilization = storage.utilization.at(asset).read();
+    fn _supply_public(amount_supplied: u128) {
+        let mut utilization = storage.utilization.read();
         utilization.total_supplied += amount_supplied;
-        storage.utilization.at(asset).write(utilization);
+        storage.utilization.write(utilization);
     }
 
-    // todo: combine all prices into one
+    /**
+     * Publicly reduce total supplied and take protocol fee on interest
+     *
+     * @param amount_withdrawn - the amount of tokens withdrawn
+     * @param interest_protocol_fee - the amount of interest taken as protocol fee
+     */
     #[external("public")]
-    fn _post_withdrawal(
-        asset: AztecAddress,
-        amount_withdrawn: u128,
-        protocol_fee: u128,
-        collateral_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    ) {
-        // 1. update utilization
-        let mut utilization = storage.utilization.at(asset).read();
-        utilization.total_supplied -= amount_withdrawn;
-        storage.utilization.at(asset).write(utilization);
+    #[internal]
+    fn _withdraw_public(amount_withdrawn: u128, interest_protocol_fee: u128, partial_note: Field) {
+        // 1. reduce total supplied
+        let mut utilization = storage.utilization.read();
+        utilization.total_borrowed -= amount_withdrawn;
+        storage.utilization.write(utilization);
 
-        // 2. check prices
+        // 2. transfer protocol fee to treasury
         let config = storage.config.read();
-        assert(collateral_addresses.len() == collateral_asserted_prices.len());
-
-
-        let collateral_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(collateral_addresses)
-            .view(&mut context);
-        
-        for i in 0..collateral_prices.len() {
-            let price = collateral_prices.get_unchecked(i);
-            let asserted_price = collateral_asserted_prices.get_unchecked(i);
-            assert(price == asserted_price, "Price mismatch");
+        if interest_protocol_fee > 0 {
+            Token::at(config.loaned_token_address)
+                .transfer_public_to_public(
+                    context.this_address(),
+                    config.treasury_address,
+                    interest_protocol_fee,
+                    0
+                )
+                .call(&mut context);
         }
 
-        assert(debt_addresses.len() == debt_asserted_prices.len());
-        let debt_prices =
-            MockPriceFeed::at(config.oracle_address).get_prices(debt_addresses).view(&mut context);
-        for i in 0..debt_prices.len() {
-            let price = debt_prices.get_unchecked(i);
-            let asserted_price = debt_asserted_prices.get_unchecked(i);
-            assert(price == asserted_price, "Price mismatch");
-        }
-
-        // 3. claim protocol fees to treasury
-        Token::at(asset)
-            .transfer_public_to_public(
-                context.this_address(),
-                config.treasury_address,
-                protocol_fee,
-                0,
-            )
+        // 3. transfer withdrawn tokens to withdrawer partial note
+        let self_address = context.this_address();
+        Token::at(config.loaned_token_address)
+            .transfer_public_to_commitment(self_address, partial_note, amount_withdrawn, 0)
             .call(&mut context);
     }
 
-    
-    // todo: combine all prices into one
+    /**
+     * Update total borrowed in utilization
+     *
+     * @param amount_borrowed - the amount of tokens borrowed
+     * @param asserted_collateral_token_price - the price of the collateral token as asserted in private
+     * @param asserted_loaned_token_price - the price of the loaned token as asserted in private
+     * @param partial_note - the partial commitment to transfer borrowed tokens to (shielded)
+     */
     #[external("public")]
-    fn _post_borrow(
-        asset: AztecAddress,
+    #[internal]
+    fn _borrow_public(
         amount_borrowed: u128,
-        collateral_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        collateral_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_addresses: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
+        partial_note: Field
     ) {
         // 1. update utilization
-        let mut utilization = storage.utilization.at(asset).read();
+        let mut utilization = storage.utilization.read();
         utilization.total_borrowed += amount_borrowed;
-        storage.utilization.at(asset).write(utilization);
-        // 2. check prices
-        let config = storage.config.read();
-        assert(collateral_addresses.len() == collateral_asserted_prices.len());
-
-        let collateral_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(collateral_addresses)
-            .view(&mut context);
-
-        for i in 0..collateral_prices.len() {
-            let price = collateral_prices.get_unchecked(i);
-            let asserted_price = collateral_asserted_prices.get_unchecked(i);
-            assert(price == asserted_price, "Price mismatch");
-        }
-
-        assert(debt_addresses.len() == debt_asserted_prices.len());
-        let debt_prices =
-            MockPriceFeed::at(config.oracle_address).get_prices(debt_addresses).view(&mut context);
-
-        for i in 0..debt_prices.len() {
-            let price = debt_prices.get_unchecked(i);
-            let asserted_price = debt_asserted_prices.get_unchecked(i);
-            // debug_log_format("=========debt\nindex: {0}\nprice: {1}\nasserted: {2}", [i as Field, price as Field, asserted_price as Field]);
-            assert(price == asserted_price, "Price mismatch");
-        }
-    }
-
-    #[external("public")]
-    #[internal]
-    fn _post_repay(asset: AztecAddress, amount_repaid: u128) {
-        let mut utilization = storage.utilization.at(asset).read();
-        utilization.total_borrowed -= amount_repaid;
-        storage.utilization.at(asset).write(utilization);
-    }
-
-    #[external("public")]
-    #[internal]
-    fn _post_liquidation(
-        loan_asset: AztecAddress,
-        collateral_asset: AztecAddress,
-        amount_repaid: u128,
-        collateral_transferred: u128,
-        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        collateral_assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_assets: BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>,
-        protocol_fee: u128,
-    ) {
-        // 1. update loaned asset utilization
-        let mut utilization = storage.utilization.at(loan_asset).read();
-        utilization.total_borrowed -= amount_repaid;
-        storage.utilization.at(loan_asset).write(utilization);
-
-        // 2. update collateral asset utilization
-        let mut utilization_collateral = storage.utilization.at(collateral_asset).read();
-        utilization_collateral.total_supplied -= collateral_transferred;
-        storage.utilization.at(collateral_asset).write(utilization_collateral);
+        storage.utilization.write(utilization);
 
         // 2. check prices
+        // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
+        // 2a. check prices from oracle
         let config = storage.config.read();
-        assert(collateral_assets.len() == collateral_prices.len());
-
-        let collateral_prices = MockPriceFeed::at(config.oracle_address)
-            .get_prices(collateral_assets)
+        let assets = BoundedVec::from_array([
+            config.collateral_token_address,
+            config.loaned_token_address,
+        ]);
+        let prices = MockPriceFeed::at(config.price_oracle_address)
+            .get_prices(assets)
             .view(&mut context);
+        // this check might be unncessary
+        assert(prices.len() == 2, "Price feed returned incorrect number of prices");
+        // 2b. check collateral price is higher or equal to asserted
+        //    if price is higher, borrower got a worse deal but pool is safe
+        let collateral_price = prices.get_unchecked(0);
+        assert(
+            collateral_price > asserted_collateral_token_price,
+            "Collateral price lower than asserted",
+        );
+        // 2c. check loaned price is lower or equal to asserted
+        //    if price is lower, borrower got a worse deal but pool is safe
+        let loaned_price = prices.get_unchecked(1);
+        assert(
+            loaned_price < asserted_loaned_token_price,
+            "Loaned price higher than asserted",
+        );
 
-        for i in 0..collateral_prices.len() {
-            let price = collateral_prices.get_unchecked(i);
-            let asserted_price = collateral_prices.get_unchecked(i);
-            assert(price == asserted_price, "Price mismatch");
-        }
-
-        assert(debt_assets.len() == debt_prices.len());
-        let debt_prices =
-            MockPriceFeed::at(config.oracle_address).get_prices(debt_assets).view(&mut context);
-
-        for i in 0..debt_prices.len() {
-            let price = debt_prices.get_unchecked(i);
-            let asserted_price = debt_prices.get_unchecked(i);
-            // debug_log_format("=========debt\nindex: {0}\nprice: {1}\nasserted: {2}", [i as Field, price as Field, asserted_price as Field]);
-            assert(price == asserted_price, "Price mismatch");
-        }
-
-        // 3. claim protocol fees to treasury
-        let config = storage.config.read();
-        Token::at(collateral_asset)
-            .transfer_public_to_public(
-                context.this_address(),
-                config.treasury_address,
-                protocol_fee,
-                0,
-            )
+        // 3. transfer borrowed tokens to borrower partial note
+        let self_address = context.this_address();
+        Token::at(config.loaned_token_address)
+            .transfer_public_to_commitment(self_address, partial_note, amount_borrowed, 0)
             .call(&mut context);
     }
 
-    #[external("utility")]
-    unconstrained fn get_deposit_receipts(
-        account: AztecAddress,
-    ) -> BoundedVec<ReceiptNote, MAX_ASSETS_PER_ACCOUNT> {
-        let mut retrieved_notes = BoundedVec::new();
-        let notes = storage.deposit_receipts.at(account).view_notes(NoteViewerOptions::new());
-        for i in 0..notes.len() {
-            // assumes that there will never be more than MAX_ASSETS_PER_ACCOUNT notes stored in the set
-            retrieved_notes.push(notes.get_unchecked(i));
-        }
-        retrieved_notes
+    /**
+     * Publicly reduce total borrowed
+     *
+     * @param amount_repaid - the amount of tokens repaid
+     */
+    #[external("public")]
+    #[internal]
+    fn _repay_public(amount_repaid: u128) {
+        let mut utilization = storage.utilization.read();
+        utilization.total_borrowed -= amount_repaid;
+        storage.utilization.write(utilization);
     }
 
-    #[external("utility")]
-    unconstrained fn get_loan_receipts(
-        account: AztecAddress,
-    ) -> BoundedVec<ReceiptNote, MAX_ASSETS_PER_ACCOUNT> {
-        let mut retrieved_notes = BoundedVec::new();
-        let notes = storage.loan_receipts.at(account).view_notes(NoteViewerOptions::new());
-        for i in 0..notes.len() {
-            // assumes that there will never be more than MAX_ASSETS_PER_ACCOUNT notes stored in the set
-            retrieved_notes.push(notes.get_unchecked(i));
-        }
-        retrieved_notes
-    }
-
-    #[external("utility")]
-    unconstrained fn get_utilization(asset: AztecAddress) -> (u128, u128) {
-        let utilization = storage.utilization.at(asset).read();
-        (utilization.total_supplied, utilization.total_borrowed)
-    }
-
-    // non utility views
-    #[external("private")]
-    #[view]
-    fn get_health_factor(
-        collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-        debt_asserted_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
-    ) -> u128 {
-        let caller = context.msg_sender().unwrap();
-        let (health_factor, _, _) = _calculate_health_factor(
-            &mut context,
-            storage.deposit_receipts.at(caller),
-            storage.loan_receipts.at(caller),
-            storage.ltvs,
-            collateral_prices,
-            debt_asserted_prices,
+    /**
+     * Withdraw supplied collateral from the pool
+     *
+     * @param asserted_collateral_token_price - the price of the collateral token as asserted in
+     * @param asserted_loaned_token_price - the price of the loaned token as asserted in
+     * @param amount_withdrawn - the amount of tokens to withdraw
+     * @param partial_note - the partial commitment to transfer withdrawn tokens to (shielded)
+     */
+    #[external("public")]
+    #[internal]
+    fn _withdraw_collateral_public(
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
+        amount_withdrawn: u128,
+        partial_note: Field
+    ) {
+        // 1. check prices
+        // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
+        // 1a. check prices from oracle
+        let config = storage.config.read();
+        let assets = BoundedVec::from_array([
+            config.collateral_token_address,
+            config.loaned_token_address,
+        ]);
+        let prices = MockPriceFeed::at(config.price_oracle_address)
+            .get_prices(assets)
+            .view(&mut context);
+        // this check might be unncessary
+        assert(prices.len() == 2, "Price feed returned incorrect number of prices");
+        // 1b. check collateral price is higher or equal to asserted
+        //    if price is higher, borrower got a worse deal but pool is safe
+        let collateral_price = prices.get_unchecked(0);
+        assert(
+            collateral_price > asserted_collateral_token_price,
+            "Collateral price lower than asserted",
         );
-        health_factor
+        // 1c. check loaned price is lower or equal to asserted
+        //    if price is lower, borrower got a worse deal but pool is safe
+        let loaned_price = prices.get_unchecked(1);
+        assert(
+            loaned_price < asserted_loaned_token_price,
+            "Loaned price higher than asserted",
+        );
+
+        // 2. transfer collateral tokens to partial note commitment
+        let self_address = context.this_address();
+        Token::at(config.collateral_token_address)
+            .transfer_public_to_commitment(self_address, partial_note, amount_withdrawn, 0)
+            .call(&mut context);
     }
 
+    #[external("public")]
+    #[internal]
+    fn _liquidate_public(   
+        liquidator_collateral_amount: u128,
+        protocol_fee_amount: u128,
+        liquidator_partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128
+    ) {
+        // 1. check prices
+        // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
+        // 1a. check prices from oracle
+        let config = storage.config.read();
+        let assets = BoundedVec::from_array([
+            config.collateral_token_address,
+            config.loaned_token_address,
+        ]);
+        let prices = MockPriceFeed::at(config.price_oracle_address)
+            .get_prices(assets)
+            .view(&mut context);
+        // this check might be unncessary
+        assert(prices.len() == 2, "Price feed returned incorrect number of prices");
+        // 1b. check collateral price is higher or equal to asserted
+        //    if price is higher, borrower got a worse deal but pool is safe
+        let collateral_price = prices.get_unchecked(0);
+        assert(
+            collateral_price > asserted_collateral_token_price,
+            "Collateral price lower than asserted",
+        );
+        // 1c. check loaned price is lower or equal to asserted
+        //    if price is lower, borrower got a worse deal but pool is safe
+        let loaned_price = prices.get_unchecked(1);
+        assert(
+            loaned_price < asserted_loaned_token_price,
+            "Loaned price higher than asserted",
+        );
+        // 2. transfer seized collateral to liquidator
+        let config = storage.config.read();
+        let self_address = context.this_address();
+        Token::at(config.collateral_token_address)
+            .transfer_public_to_commitment(
+                self_address,
+                liquidator_partial_note,
+                liquidator_collateral_amount,
+                0
+            )
+            .call(&mut context);
+        // 3. transfer protocol fee to treasury
+        Token::at(config.collateral_token_address)
+            .transfer_public_to_public(
+                self_address,
+                config.treasury_address,
+                protocol_fee_amount,
+                0
+            )
+            .call(&mut context);
+    }
 }
