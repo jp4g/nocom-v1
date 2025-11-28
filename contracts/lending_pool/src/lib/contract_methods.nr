@@ -90,14 +90,15 @@ pub fn _update_loan(
     context: &mut PrivateContext,
     receipt_storage: PrivateMutable<LoanNote, &mut PrivateContext>,
     owner: AztecAddress,
-    amount: u128,
+    amount_added: u128,
+    amount_subbed: u128,
     interest_rate: u128,
-) {
+) -> u128 {
     // 1. determine the current epoch
     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
     
     // 2. update or insert receipt note
-    receipt_storage.initialize_or_replace(|existing_receipt| {
+    let emission = receipt_storage.initialize_or_replace(|existing_receipt| {
         // if note currently exists, calclulate existing amount with interest
         let existing_amount = if existing_receipt.is_some() {
             let principal = existing_receipt.unwrap_unchecked().amount;
@@ -113,9 +114,13 @@ pub fn _update_loan(
         } else {
             0
         };
-        let updated_amount = existing_amount + amount;
+        let updated_amount = existing_amount + amount_added - amount_subbed;
         LoanNote::new(owner, updated_amount, current_epoch)
-    }).emit(owner, MessageDelivery.CONSTRAINED_ONCHAIN);
+    });
+    
+    // 3. capture new amount and emit new note
+    emission.emit(owner, MessageDelivery.CONSTRAINED_ONCHAIN);
+    emission.content.note.amount
 }
 
 
