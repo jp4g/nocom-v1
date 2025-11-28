@@ -28,7 +28,7 @@ use crate::{
         math, time
     },
     NocomLendingPoolV1::self,
-    types::receipt_note::ReceiptNote,
+    types::loan_note::LoanNote,
 };
 
 unconstrained fn check_receipt_initialized(
@@ -46,8 +46,8 @@ unconstrained fn check_receipt_initialized(
 pub fn _get_existing_receipt(
     current_epoch: u64,
     receipt_map_slot: Field,
-    receipt_storage: PrivateMutable<ReceiptNote, &mut PrivateContext>,
-) -> Option<ReceiptNote> {
+    receipt_storage: PrivateMutable<LoanNote, &mut PrivateContext>,
+) -> Option<LoanNote> {
     // check if initialized
     // Safety: use will try to initialize if not found, will find the nullifier, and fail
     let is_initialized = unsafe {
@@ -61,10 +61,9 @@ pub fn _get_existing_receipt(
 }
 
 #[contract_library_method]
-pub fn _update_receipt(
+pub fn _update_loan(
     context: &mut PrivateContext,
-    receipt_map_slot: Field,
-    receipt_storage: PrivateMutable<ReceiptNote, &mut PrivateContext>,
+    receipt_storage: PrivateMutable<LoanNote, &mut PrivateContext>,
     owner: AztecAddress,
     amount: u128,
     interest_rate: u128,
@@ -90,7 +89,7 @@ pub fn _update_receipt(
             0
         };
         let updated_amount = existing_amount + amount;
-        ReceiptNote::new(owner, updated_amount, current_epoch)
+        LoanNote::new(owner, updated_amount, current_epoch)
     }).emit(owner, MessageDelivery.CONSTRAINED_ONCHAIN);
 }
 
@@ -119,7 +118,7 @@ pub fn _update_receipt(
 // pub fn _pop_existing_receipt(
 //     context: &mut PrivateContext,
 //     asset_address: AztecAddress,
-//     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+//     receipt_storage: PrivateSet<LoanNote, &mut PrivateContext>,
 //     interest_rate: u128,
 // ) -> (u128, u128, u64) {
 //     // 1. Get the current epoch & enforce delivery
@@ -151,8 +150,8 @@ pub fn _update_receipt(
 // #[contract_library_method]
 // pub fn _calculate_health_factor(
 //     context: &mut PrivateContext,
-//     deposit_receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
-//     loan_receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+//     deposit_receipt_storage: PrivateSet<LoanNote, &mut PrivateContext>,
+//     loan_receipt_storage: PrivateSet<LoanNote, &mut PrivateContext>,
 //     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
 //     collateral_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 //     debt_prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
@@ -187,17 +186,17 @@ pub fn _update_receipt(
 // #[contract_library_method]
 // pub fn get_receipt_amount(
 //     context: &mut PrivateContext,
-//     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+//     receipt_storage: PrivateSet<LoanNote, &mut PrivateContext>,
 //     interest_rate: u128,
 //     prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
 // ) -> (u128, BoundedVec<AztecAddress, MAX_ASSETS_PER_ACCOUNT>) {
 //     // 1. Get all the notes for the depositor
 //     // enforce sorting asset addresses by ascending to match prices order
 //     let opts = NoteGetterOptions::new().set_limit(MAX_ASSETS_PER_ACCOUNT).sort(
-//         ReceiptNote::properties().asset,
+//         LoanNote::properties().asset,
 //         SortOrder.ASC,
 //     );
-//     let receipt_notes: BoundedVec<RetrievedNote<ReceiptNote>, 16> = receipt_storage.get_notes(opts);
+//     let receipt_notes: BoundedVec<RetrievedNote<LoanNote>, 16> = receipt_storage.get_notes(opts);
 //     assert(prices.len() == receipt_notes.len(), "Mismatched prices and receipts lengths");
 //     // 2. get current epoch
 //     let current_epoch = time::get_next_epoch(context, EPOCH_LENGTH) - 1;
@@ -245,7 +244,7 @@ pub fn _update_receipt(
 // #[contract_library_method]
 // pub fn get_receipt_amount_ltv_weighted(
 //     context: &mut PrivateContext,
-//     receipt_storage: PrivateSet<ReceiptNote, &mut PrivateContext>,
+//     receipt_storage: PrivateSet<LoanNote, &mut PrivateContext>,
 //     ltv_storage: Map<AztecAddress, PublicImmutable<u128, &mut PrivateContext>, &mut PrivateContext>,
 //     interest_rate: u128,
 //     prices: BoundedVec<u128, MAX_ASSETS_PER_ACCOUNT>,
@@ -253,7 +252,7 @@ pub fn _update_receipt(
 //     // 1. Get all the notes for the depositor
 //     // enforce sorting asset addresses by ascending to match prices order
 //     let opts = NoteGetterOptions::new().set_limit(MAX_ASSETS_PER_ACCOUNT).sort(
-//         ReceiptNote::properties().asset,
+//         LoanNote::properties().asset,
 //         SortOrder.ASC,
 //     );
 //     let receipt_notes = receipt_storage.get_notes(opts);
@@ -303,9 +302,9 @@ pub fn _update_receipt(
 
 // // Ensures that either no note was found or one note matches
 // pub fn filter_to_asset_receipt(
-//     retrieved_notes: [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL],
+//     retrieved_notes: [Option<RetrievedNote<LoanNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL],
 //     asset_address: AztecAddress,
-// ) -> [Option<RetrievedNote<ReceiptNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL] {
+// ) -> [Option<RetrievedNote<LoanNote>>; MAX_NOTE_HASH_READ_REQUESTS_PER_CALL] {
 //     let mut selected = [Option::none(); MAX_NOTE_HASH_READ_REQUESTS_PER_CALL];
 
 //     // let mut found = [false; N];

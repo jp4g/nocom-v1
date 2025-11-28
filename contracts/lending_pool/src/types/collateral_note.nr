@@ -6,19 +6,18 @@ use aztec::{
 
 #[derive(Deserialize, Eq, Serialize, Packable)]
 #[note]
-pub struct ReceiptNote {
+pub struct CollateralNote {
     pub owner: AztecAddress,
     randomness: Field,
     pub amount: u128,
-    pub epoch: u64,
 }
 
 /**
- * Tracks the amount and epoch for a given asset type
+ * Tracks the amount of collateral deposited
  */
-impl ReceiptNote {
-    pub fn new(owner: AztecAddress, amount: u128, epoch: u64) -> Self {
+impl CollateralNote {
+    pub fn new(owner: AztecAddress, amount: u128) -> Self {
         let randomness = unsafe { random() };
-        Self { owner, randomness, amount, epoch }
+        Self { owner, randomness, amount }
     }
 }

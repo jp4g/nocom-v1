@@ -1,4 +1,5 @@
 pub mod asset;
 pub mod config;
-pub mod receipt_note;
+pub mod collateral_note;
+pub mod loan_note;
 pub mod utilization;

@@ -16,13 +16,13 @@ pub contract NocomLendingPoolV1 {
 
     use crate::{
         lib::{
-            contract_methods::{_update_receipt},
+            contract_methods::{_update_loan},
             math,
             constants
         },
         types::{
-            config::Config, receipt_note::ReceiptNote,
-            utilization::Utilization
+            config::Config, loan_note::LoanNote,
+            utilization::Utilization, collateral_note::CollateralNote
         },
     };
 
@@ -32,9 +32,9 @@ pub contract NocomLendingPoolV1 {
     #[storage]
     struct Storage<Context> {
         config: PublicImmutable<Config, Context>,
-        collateral: Map<AztecAddress, PrivateMutable<ReceiptNote, Context>, Context>,
-        loan: Map<AztecAddress, PrivateMutable<ReceiptNote, Context>, Context>,
-        borrow: Map<AztecAddress, PrivateMutable<ReceiptNote, Context>, Context>,
+        collateral: Map<AztecAddress, PrivateMutable<CollateralNote, Context>, Context>,
+        loan: Map<AztecAddress, PrivateMutable<LoanNote, Context>, Context>,
+        borrow: Map<AztecAddress, PrivateMutable<LoanNote, Context>, Context>,
         utilization: PublicMutable<Utilization, Context>,
     }
 
@@ -64,7 +64,37 @@ pub contract NocomLendingPoolV1 {
 
     /// LENDING FUNCTIONS ///
 
+    /**
+     * Supply loan tokens to the pool to earn interest from borrowers
+     *
+     * @param from - the tx entrypoint address which will supply tokens (not the escrow calling this funciton)
+     * @param amount - the amount of tokens to supply
+     * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
+     */
+    #[external("private")]
+    fn supply_private(from: AztecAddress, amount: u128, authwit_nonce: Field) {
+        // 1. get the config
+        let config = storage.config.read();
+        let supplier = context.msg_sender().unwrap();
+        let self_address = context.this_address();
 
+        // 2. update or insert a loan deposit receipt
+        _update_loan(
+            &mut context,
+            storage.loan.at(supplier),
+            supplier,
+            amount,
+            constants::LEND_INTEREST,
+        );
+
+        // 3. pull in tokens to lend
+        Token::at(config.loaned_token_address)
+            .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
+            .call(&mut context);
+        
+        // 4. update utilization
+        NocomLendingPoolV1::at(self_address)._post_supply(amount).enqueue(&mut context);
+    }
 
     /**
      * Supply collateral tokens to the pool to enable borrowing
@@ -80,15 +110,15 @@ pub contract NocomLendingPoolV1 {
         let depositor = context.msg_sender().unwrap();
 
         // 2. update or insert a collateral receipt
-        // TODO: custom get_receipt with no interest calculation
-        _update_receipt(
-            &mut context,
-            NocomLendingPoolV1::storage_layout().collateral.slot,
-            storage.collateral.at(depositor),
-            depositor,
-            amount,
-            0 // no interest is given for collateral
-        );
+        storage.collateral.at(depositor).initialize_or_replace(|existing_receipt| {
+            // if note currently exists, calclulate existing amount with interest
+            let collateral_amount = if existing_receipt.is_some() {
+                existing_receipt.unwrap().amount + amount
+            } else {
+                amount
+            };
+            CollateralNote::new(depositor, collateral_amount)
+        }).emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
 
         // 3. pull in tokens to collateralize
         Token::at(config.collateral_token_address)
@@ -456,7 +486,17 @@ pub contract NocomLendingPoolV1 {
     // }
 
 
+
     // /// PUBLIC CLEANUP HOOKS ///
+
+    #[external("public")]
+    #[internal]
+    fn _post_supply(amount_supplied: u128) {
+        let mut utilization = storage.utilization.read();
+        utilization.total_supplied += amount_supplied;
+        storage.utilization.write(utilization);
+    }
+
     // // todo: combine all prices into one
     // #[external("public")]
     // fn _post_withdrawal(
