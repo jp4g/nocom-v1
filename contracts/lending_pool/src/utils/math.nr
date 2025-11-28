@@ -6,6 +6,9 @@ use crate::utils::constants::{
     PRICE_BASE,
     LTV_RATIO_BASE,
     LTV_BASE,
+    PROTOCOL_LIQUIDATION_FEE,
+    LIQUIDATION_BONUS,
+    BONUS_BASE
 };
 
 /**
@@ -22,6 +25,33 @@ pub fn calculate_withdraw_ratio(
     let total_scaled = total / LTV_RATIO_BASE;
     let amount_scaled = amount_to_withdraw / LTV_RATIO_BASE;
     (amount_scaled * LTV_BASE) / total_scaled
+}
+
+/**
+ * Calculates the amount of collateral to be seized during liquidation
+ *
+ * @param debt_amount - amount of debt being repaid (in WAD)
+ * @param debt_price - price of the debt asset (in PRICE_BASE)
+ * @param collateral_price - price of the collateral asset (in PRICE_BASE)
+ * @return (total_collateral_seized, liquidator_collateral_amount, protocol_fee)
+ */
+pub fn calculate_liquidation(
+    debt_amount: u128,
+    debt_price: u128,
+    collateral_price: u128,
+) -> (u128, u128, u128) {
+    // 1. calculate the value of the debt being repaid
+    let debt_value = (debt_amount * debt_price) / PRICE_BASE;
+    // 2. calculate the amount of collateral needed to cover this value
+    let collateral_amount = (debt_value * PRICE_BASE) / collateral_price;
+    // 3. calculate the total liquidation bonus (10% of collateral seized)
+    let total_liquidation_bonus = collateral_amount * LIQUIDATION_BONUS / BONUS_BASE;
+    // 4. calculate the protocol fee on the bonus (10% of bonus)
+    let protocol_fee = total_liquidation_bonus * PROTOCOL_LIQUIDATION_FEE / BONUS_BASE;
+    // 5. get the final amounts for each party
+    let total_collateral_seized = collateral_amount + total_liquidation_bonus;
+    let liquidator_collateral_amount = total_collateral_seized - protocol_fee;
+    (total_collateral_seized, liquidator_collateral_amount, protocol_fee)
 }
 
 

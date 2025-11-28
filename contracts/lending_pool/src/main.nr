@@ -407,6 +407,106 @@ pub contract NocomLendingPoolV1 {
         NocomLendingPoolV1::at(self_address)._repay_public(amount).enqueue(&mut context);
     }
 
+    #[external("private")]
+    fn liquidate_private(
+        amount_to_repay: u128,
+        liquidator_address: AztecAddress,
+        liquidation_authwit_nonce: Field,
+        liquidator_partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
+    ) {
+        // 1. get the config and caller
+        let config = storage.config.read();
+        let liquidator = context.msg_sender().unwrap();
+        let self_address = context.this_address();
+
+        // 2. get the next epoch
+        let next_epoch = time::get_next_epoch(&mut context, constants::EPOCH_LENGTH);
+
+        // 3. get the current borrow amount principal
+        let borrow_emission = storage.borrow.at(liquidator).get_note();
+        borrow_emission.emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let borrow_principal = borrow_emission.content.note.amount;
+
+        // 4. calculate total liability with interest
+        let borrow_epoch = borrow_emission.content.note.epoch;
+        let borrow_interest = math::calculate_interest(
+            borrow_principal,
+            borrow_epoch,
+            next_epoch,
+            constants::EPOCH_LENGTH,
+            constants::BORROW_INTEREST,
+        ); // NOTE: will just be 0 if principal is 0
+        let total_borrowed = borrow_principal + borrow_interest;
+
+        // 5. determine the amount of collateral deposited
+        let collateral_emission = storage.collateral.at(liquidator).get_note();
+        collateral_emission.emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN); //reemit
+        let collateral_amount = collateral_emission.content.note.amount;
+
+        // 6. check that position is under liquidation threshold
+        let ltv_health = math::calculate_ltv_health(
+            asserted_loaned_token_price,
+            total_borrowed,
+            asserted_collateral_token_price,
+            collateral_amount,
+            config.liquidation_threshold,
+        );
+        assert(
+            ltv_health < constants::LTV_THRESHOLD,
+            "Position healthy, cannot liquidate"
+        );
+
+        // 7. check that amount to repay is <= 50% of total borrowed
+        assert(
+            amount_to_repay * 2 <= total_borrowed,
+            "Cannot repay more than 50% of total borrowed in liquidation"
+        );
+
+        // 8. calculate the amount of collateral to seize to match loan repayment
+        let (total_collateral_seized, liquidator_collateral_amount, protocol_fee) =
+            math::calculate_liquidation(
+                amount_to_repay,
+                asserted_loaned_token_price,
+                asserted_collateral_token_price,
+            );
+        
+        // 9. update borrow note
+        let remaining_loan_amount = total_borrowed - amount_to_repay;
+        let current_epoch = next_epoch - 1;
+        storage.borrow.at(liquidator).replace(|existing_loan| {
+            LoanNote::new(liquidator, remaining_loan_amount, current_epoch)
+        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
+
+        // 10. update collateral note
+        let remaining_collateral_amount = collateral_amount - total_collateral_seized;
+        storage.collateral.at(liquidator).replace(|existing_collateral| {
+            CollateralNote::new(liquidator, remaining_collateral_amount)
+        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
+
+        // 11. pull in tokens to repay
+        // NOTE: this could be public but we leave it private so liquidator can prepare for liquidation
+        //       without leaking that they are acquiring the funds to do so
+        Token::at(config.loaned_token_address)
+            .transfer_private_to_public(
+                liquidator_address,
+                context.this_address(),
+                amount_to_repay,
+                liquidation_authwit_nonce
+            ).call(&mut context);
+        
+        // 12. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
+        NocomLendingPoolV1::at(self_address)
+            ._liquidate_public(
+                liquidator_collateral_amount,
+                protocol_fee,
+                liquidator_partial_note,
+                asserted_loaned_token_price,
+                asserted_collateral_token_price,
+            ).enqueue(&mut context);
+    }
+
     /// PUBLIC INTERNAL ///
 
     /**
@@ -534,6 +634,7 @@ pub contract NocomLendingPoolV1 {
      * @param partial_note - the partial commitment to transfer withdrawn tokens to (shielded)
      */
     #[external("public")]
+    #[internal]
     fn _withdraw_collateral_public(
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
@@ -572,6 +673,64 @@ pub contract NocomLendingPoolV1 {
         let self_address = context.this_address();
         Token::at(config.collateral_token_address)
             .transfer_public_to_commitment(self_address, partial_note, amount_withdrawn, 0)
+            .call(&mut context);
+    }
+
+    #[external("public")]
+    #[internal]
+    fn _liquidate_public(   
+        liquidator_collateral_amount: u128,
+        protocol_fee_amount: u128,
+        liquidator_partial_note: Field,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128
+    ) {
+        // 1. check prices
+        // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
+        // 1a. check prices from oracle
+        let config = storage.config.read();
+        let assets = BoundedVec::from_array([
+            config.collateral_token_address,
+            config.loaned_token_address,
+        ]);
+        let prices = MockPriceFeed::at(config.price_oracle_address)
+            .get_prices(assets)
+            .view(&mut context);
+        // this check might be unncessary
+        assert(prices.len() == 2, "Price feed returned incorrect number of prices");
+        // 1b. check collateral price is higher or equal to asserted
+        //    if price is higher, borrower got a worse deal but pool is safe
+        let collateral_price = prices.get_unchecked(0);
+        assert(
+            collateral_price > asserted_collateral_token_price,
+            "Collateral price lower than asserted",
+        );
+        // 1c. check loaned price is lower or equal to asserted
+        //    if price is lower, borrower got a worse deal but pool is safe
+        let loaned_price = prices.get_unchecked(1);
+        assert(
+            loaned_price < asserted_loaned_token_price,
+            "Loaned price higher than asserted",
+        );
+        // 2. transfer seized collateral to liquidator
+        let config = storage.config.read();
+        let self_address = context.this_address();
+        Token::at(config.collateral_token_address)
+            .transfer_public_to_commitment(
+                self_address,
+                liquidator_partial_note,
+                liquidator_collateral_amount,
+                0
+            )
+            .call(&mut context);
+        // 3. transfer protocol fee to treasury
+        Token::at(config.collateral_token_address)
+            .transfer_public_to_public(
+                self_address,
+                config.treasury_address,
+                protocol_fee_amount,
+                0
+            )
             .call(&mut context);
     }
 }
