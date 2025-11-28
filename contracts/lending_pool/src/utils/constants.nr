@@ -1,5 +1,5 @@
 // epochs are used to measure time spent in the pool without exiting private state
-pub global EPOCH_LENGTH: u64 = 300; // 5 minutes per epoch
+pub global EPOCH_LENGTH: u64 = 450; // 7.5 minutes per epoch
 pub global SECONDS_PER_YEAR: u128 = comptime { (60 * 60 * 24 * 365) as u128 }; // 31536000 seconds
 
 // hardcoded borrow/ lending interest rates for now

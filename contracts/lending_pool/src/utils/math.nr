@@ -1,4 +1,4 @@
-use crate::lib::constants::{
+use crate::utils::constants::{
     EPOCH_LENGTH,
     SECONDS_PER_YEAR,
     WAD,
@@ -8,14 +8,34 @@ use crate::lib::constants::{
     LTV_BASE,
 };
 
-pub fn calculate_asset_value(
-    amount: u128,
-    price: u128, // price with PRICE_BASE precision
+/**
+ * Approximately calculates the amount withdrawn to determine what share of interest should 
+ * be extracted for a protocol fee
+ * @param total - total amount being withdrawn from
+ * @param amount_to_withdraw - amount being
+ * @return withdraw_ratio - ratio of amount being withdrawn scaled to LTV_BASE
+ */
+pub fn calculate_withdraw_ratio(
+    total: u128,
+    amount_to_withdraw: u128,
 ) -> u128 {
-    (amount * price) / PRICE_BASE
+    let total_scaled = total / LTV_RATIO_BASE;
+    let amount_scaled = amount_to_withdraw / LTV_RATIO_BASE;
+    (amount_scaled * LTV_BASE) / total_scaled
 }
 
 
+/**
+ * Calculates the LTV health ratio.
+ * @NOTICE: can be used with liquidation threshold as well (as max LTV)
+ * @NOTICE: should be above LTV_THRESHOLD to be healthy
+ *
+ * @param loaned_asset_price - price of the loaned asset (in PRICE_BASE)
+ * @param loaned_asset_amount - amount of the loaned asset (in WAD)
+ * @param collateral_asset_price - price of the collateral asset (in PRICE_BASE)
+ * @param collateral_asset_amount - amount of the collateral asset (in WAD)
+ * @param max_ltv - maximum loan-to-value ratio allowed (in LTV_BASE)
+ */
 pub fn calculate_ltv_health(
     loaned_asset_price: u128,
     loaned_asset_amount: u128,
@@ -44,6 +64,16 @@ pub fn calculate_ltv_health(
     }
 }
 
+/**
+ * Calculate interest accrued on a principal over time using continuous compounding.
+ * @NOTICE: estimates interest - todo: use u256 with RAY math
+ * @param principal - The principal amount (in WAD)
+ * @param start_epoch - The epoch when the interest calculation starts
+ * @param current_epoch - The current epoch
+ * @param epoch_duration - Duration of an epoch in seconds
+ * @param interest_rate - Annual interest rate in basis points (e.g., for 4.2% use 42)
+ * @return interest - The accrued interest amount (in WAD)
+ */
 pub fn calculate_interest(
     principal: u128,
     start_epoch: u64,
