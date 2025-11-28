@@ -294,12 +294,12 @@ pub contract NocomLendingPoolV1 {
         assert(health_factor >= HEALTH_FACTOR_THRESHOLD, "Undercollateralized BOZO, L + LTV RATIO");
 
         // 7. transfer tokens out to depositor
-        Token::at(asset_address)
-            .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
-            .enqueue(&mut context);
         // Token::at(asset_address)
-        //     .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
-        //     .call(&mut context);
+        //     .transfer_public_to_commitment(context.this_address(), partial_commitment, amount, 0)
+        //     .enqueue(&mut context);
+        Token::at(asset_address)
+            .transfer_public_to_private(context.this_address(), recipient_address, amount, 0)
+            .call(&mut context);
 
         // // 8. update utilization and check prices
         NocomLendingPoolV1::at(context.this_address())
@@ -420,8 +420,10 @@ pub contract NocomLendingPoolV1 {
         let collateral_total_amount = collateral_principal + collateral_interest;
 
         // 4. check that amount to repay is < or equal to the loan receipt amount
+        debug_log_format("Amount to repay: {0}, loan total amount: {1}", [amount_to_repay as Field, loan_total_amount as Field]);
         assert(amount_to_repay <= loan_total_amount, "Repay amount exceeds debt");
 
+        debug_log_format("Sending repay from liquidator: {0}", [amount_to_repay as Field]);
         // 5. repay the loan
         Token::at(liquidation_asset)
             .transfer_private_to_public(
@@ -463,7 +465,11 @@ pub contract NocomLendingPoolV1 {
         // 7e. collateral transfer results
         let total_collateral_liquidated = collateral_equivalent + liquidation_bonus;
         let collateral_to_liquidator = total_collateral_liquidated - protocol_fee;
-
+        debug_log_format("Collateral price: {0}, loan price: {1}", [collateral_price as Field, loan_price as Field]);
+        debug_log_format("Collateral equivalent: {0}", [collateral_equivalent as Field]);
+        debug_log_format("Liquidation bonus: {0}", [liquidation_bonus as Field]);
+        debug_log_format("Total collateral liquidated: {0}", [total_collateral_liquidated as Field]);
+        debug_log_format("Protocol fee: {0}", [protocol_fee as Field]);
         // 8. check that there is enough collateral to cover
         assert(total_collateral_liquidated <= collateral_total_amount, "Not enough collateral to cover liquidation");
 
@@ -482,6 +488,9 @@ pub contract NocomLendingPoolV1 {
             );
         }
 
+        debug_log_format("Sending collateral to liquidator: {0}", [collateral_to_liquidator as Field]);
+        debug_log_format("protocol fee: {0}", [protocol_fee as Field]);
+        debug_log_format("total collateral liquidated: {0}", [total_collateral_liquidated as Field]);
         // 10. transfer collateral to liquidator
         Token::at(collateral_asset)
             .transfer_public_to_private(

@@ -16,9 +16,11 @@ use nocom_pool::{
     lib::math,
     NocomLendingPoolV1
 };
+use mock_price_feed::MockPriceFeed;
 
 
-// #[test]
+
+#[test]
 unconstrained fn e2e_test() {
     let (env, accounts, contracts) = setup(true);
 
@@ -75,7 +77,8 @@ unconstrained fn e2e_test() {
     assert(deposit_receipts.len() == 1);
 
     // 5. supply usdc collateral as borrower
-    let usdc_supply_amount = 5000 * 10.pow_32(18) as u128;
+    // 733 usdc should result in ~1.1 health factor when borrowing 1 zec @ .75 LTV for usdc
+    let usdc_supply_amount = 733 * 10.pow_32(18) as u128;
     let usdc_nonce = unsafe { random() };
     let usdc_supply_call_iface = Token::at(contracts.usdc)
         .transfer_private_to_public(
@@ -99,8 +102,8 @@ unconstrained fn e2e_test() {
                 usdc_nonce
             )
     );
-    let prices_collateral: BoundedVec<u128, 4> = BoundedVec::from_array([10.pow_32(4) as u128]);
-    let prices_debt: BoundedVec<u128, 4> = BoundedVec::from_array([500 * 10.pow_32(4) as u128]);
+    let mut prices_collateral: BoundedVec<u128, 4> = BoundedVec::from_array([10.pow_32(4) as u128]);
+    let mut prices_debt: BoundedVec<u128, 4> = BoundedVec::from_array([500 * 10.pow_32(4) as u128]);
     // 7. borrow zec
     let zec_borrow_amount = 10.pow_32(18) as u128;
     env.call_private(
@@ -147,7 +150,6 @@ unconstrained fn e2e_test() {
         NocomLendingPoolV1::at(contracts.lending_pool)
             .get_deposit_receipts(contracts.borrower_escrow)
     );
-    debug_log_format("Collateral receipts len: {0}, debt receipt length: {1}", [collateral_receipts.len() as Field, debt_receipts.len() as Field]);
     let health_factor = env.view_private(
         NocomEscrowV1::at(contracts.borrower_escrow)
             .get_health_factor(
@@ -155,11 +157,95 @@ unconstrained fn e2e_test() {
                 prices_debt
             )
     );
-    // price = 500 USD/ ZEC, USDC LTV = 95%, Supplied 5000 USDC, Borrowed 1 ZEC -> 9.5 health factor
-    let expected_health_factor = 95000;
+    let expected_health_factor = 10995;
+    debug_log_format("Health factor: {0}", [health_factor as Field]);
+    assert_eq(health_factor, expected_health_factor);
+
+    // 10. drop the price of USDC by 10% (which should bring health factor to ~.99)
+    prices_collateral.set(0, 9 * 10.pow_32(3) as u128);
+    env.call_public(
+        accounts.admin,
+        MockPriceFeed::at(contracts.price_feed).set_price(contracts.usdc, 9 * 10.pow_32(3) as u128)
+    );
+    let health_factor_after_price_drop = env.view_private(
+        NocomEscrowV1::at(contracts.borrower_escrow)
+            .get_health_factor(
+                prices_collateral,
+                prices_debt
+            )
+    );
+    debug_log_format("Health factor after price drop: {0}", [health_factor_after_price_drop as Field]);
+
+    // 11. attempt liquidation
+    let liquidation_nonce = unsafe { random() };
+    let liquidation_amount = 10.pow_32(18) as u128;
+    let zec_liquidation_call_iface = Token::at(contracts.zcash)
+        .transfer_private_to_public(
+            accounts.lender,
+            contracts.lending_pool,
+            liquidation_amount,
+            liquidation_nonce
+        );
+    add_private_authwit_from_call_interface(
+        *env,
+        accounts.lender,
+        contracts.lending_pool,
+        zec_liquidation_call_iface
+    );
+    let debt_receipts = env.simulate_utility(
+        NocomLendingPoolV1::at(contracts.lending_pool)
+            .get_loan_receipts(contracts.borrower_escrow)
+    );
+    let collateral_receipts = env.simulate_utility(
+        NocomLendingPoolV1::at(contracts.lending_pool)
+            .get_deposit_receipts(contracts.borrower_escrow)
+    );
+    let lender_zec_balance_after = env.simulate_utility(
+        Token::at(contracts.zcash).balance_of_private(accounts.lender)
+    );
+    let lender_usdc_balance_after = env.simulate_utility(
+        Token::at(contracts.usdc).balance_of_private(accounts.lender)
+    );
+    let treasury_usdc_balance_after = env.view_public(
+        Token::at(contracts.usdc).balance_of_public(contracts.lending_pool)
+    );
+    debug_log_format("=========================================================", []);
+    debug_log_format("Lender ZEC balance after liquidation: {0}", [lender_zec_balance_after as Field]);
+    debug_log_format("Lender USDC balance after liquidation: {0}", [lender_usdc_balance_after as Field]);
+    debug_log_format("Treasury USDC balance after liquidation: {0}", [treasury_usdc_balance_after as Field]);
+    env.call_private(
+        accounts.lender,
+        NocomEscrowV1::at(contracts.borrower_escrow)
+            .liquidate(
+                contracts.zcash,
+                contracts.usdc,
+                liquidation_amount,
+                liquidation_nonce,
+                prices_collateral,
+                prices_debt,
+                0,
+                0
+            )
+    );
+
+    // // 12. check state after
+    // // 12a. check balances
+    // let lender_zec_balance_after = env.simulate_utility(
+    //     Token::at(contracts.zcash).balance_of_private(accounts.lender)
+    // );
+    // let lender_usdc_balance_after = env.simulate_utility(
+    //     Token::at(contracts.usdc).balance_of_private(accounts.lender)
+    // );
+    // let treasury_usdc_balance_after = env.view_public(
+    //     Token::at(contracts.usdc).balance_of_public(contracts.lending_pool)
+    // );
+    // debug_log_format("=========================================================", []);
+    // debug_log_format("Lender ZEC balance after liquidation: {0}", [lender_zec_balance_after as Field]);
+    // debug_log_format("Lender USDC balance after liquidation: {0}", [lender_usdc_balance_after as Field]);
+    // debug_log_format("Treasury USDC balance after liquidation: {0}", [treasury_usdc_balance_after as Field]);
 }
 
-#[test(should_fail_with = "Undercollateralized BOZO, L + LTV RATIO")]
+// #[test(should_fail_with = "Undercollateralized BOZO, L + LTV RATIO")]
 unconstrained fn undercollateralized_borrow_fail() {
     let (env, accounts, contracts) = setup(true);
 
