@@ -14,7 +14,7 @@ pub global LENDING_PROTOCOL_FEE: u128 = comptime { 10.pow_32(17) as u128 };
 // liquidation parameters
 pub global LIQUIDATION_BONUS: u128 = 10; // 10% bonus to liquidators
 pub global PROTOCOL_LIQUIDATION_FEE: u128 = 10; // 10 % of liquidation bonus
-pub global LTV_THRESHOLD: u128 = comptime { 10.pow_32(4) as u128 };
+pub global LTV_THRESHOLD: u128 = comptime { 10.pow_32(5) as u128 };
 
 // scaling for computations
 pub global WAD: u128 = comptime { 10.pow_32(18) as u128 }; // 1e18

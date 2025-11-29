@@ -492,6 +492,17 @@ pub contract NocomLendingPoolV1 {
         
         // 9. update borrow note
         let remaining_loan_amount = total_borrowed - amount_to_repay;
+        debug_log_format("Borrow epoch: {0}\nNext epoch: {1}", [
+            borrow_epoch as Field,
+            next_epoch as Field
+        ]);
+        debug_log_format("remaining loan amount: {0}\ntotal borrowed: {1}\namount to repay: {2}\nborrow principal: {3}\nborrow interest: {4}", [
+            remaining_loan_amount as Field,
+            total_borrowed as Field,
+            amount_to_repay as Field,
+            borrow_principal as Field,
+            borrow_interest as Field
+        ]);
         let current_epoch = next_epoch - 1;
         storage.debt.at(liquidator).replace(|existing_loan| {
             LoanNote::new(liquidator, remaining_loan_amount, current_epoch)
@@ -499,6 +510,11 @@ pub contract NocomLendingPoolV1 {
 
         // 10. update collateral note
         let remaining_collateral_amount = collateral_amount - total_collateral_seized;
+        debug_log_format("remaining collateral amount: {0}\ntotal collateral: {1}\ntotal seized: {2}", [
+            remaining_collateral_amount as Field,
+            collateral_amount as Field,
+            total_collateral_seized as Field
+        ]);
         storage.collateral.at(liquidator).replace(|existing_collateral| {
             CollateralNote::new(liquidator, remaining_collateral_amount)
         }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);

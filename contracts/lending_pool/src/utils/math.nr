@@ -124,7 +124,7 @@ pub fn calculate_interest(
         let multiplier = compute_multiplier(rate_per_second, dt);
 
         // Apply multiplier (result is in 1e9)
-        interest = (principal * multiplier) / INTEREST_BASE
+        interest = (principal * (multiplier - INTEREST_BASE)) / INTEREST_BASE;
     }
     interest
 }

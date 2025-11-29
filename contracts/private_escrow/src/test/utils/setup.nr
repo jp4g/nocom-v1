@@ -12,6 +12,7 @@ use token_contract::Token;
 pub global USDC_NAME: str<31> = "USD Coin\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global USDC_SYMBOL: str<31> = "USDC\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global USDC_DECIMALS: u8 = 18;
+// todo: switch ltvs, usdc should be zec and vice versa
 pub global USDC_LTV: u128 = comptime {  75 * 10.pow_32(3) as u128 }; // 0.75 % LTV
 pub global USDC_LIQUIDATION_THRESHOLD: u128 = comptime {  80 * 10.pow_32(3) as u128 }; // 80 % liquidation threshold
 
@@ -120,7 +121,16 @@ pub unconstrained fn setup(mint: bool) -> (&mut TestEnvironment, TestAccounts, T
                 test_accounts.borrower,
                 20_000 * 10.pow_32(ZCASH_DECIMALS as Field) as u128,
             ),
-        )
+        );
+
+        // mint USDC to liquidator
+        env.call_private(
+            test_accounts.admin,
+            Token::at(usdc).mint_to_private(
+                test_accounts.liquidator,
+                5_000_000 * 10.pow_32(USDC_DECIMALS as Field) as u128,
+            ),
+        );
     }
 
     // set the price feeds

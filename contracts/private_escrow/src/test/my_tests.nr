@@ -20,8 +20,25 @@ use nocom_pool::{
 use mock_price_feed::MockPriceFeed;
 
 
-
 #[test]
+unconstrained fn math_test() {
+    let (env, accounts, contracts) = setup(true);
+    debug_log_format("is this thing on?", []);
+    let principal = 7000 * constants::WAD;
+    let start_epoch = 0;
+    let next_epoch = 1;
+    let interest = math::calculate_interest(
+        principal,
+        start_epoch,
+        next_epoch,
+        constants::EPOCH_LENGTH,
+        constants::BORROW_INTEREST,
+    );
+    debug_log_format("Interest: {0}", [interest as Field]);
+    debug_log_format("principal: {0}", [principal as Field]);
+}
+
+// #[test]
 unconstrained fn test_liquidation() {
     let (env, accounts, contracts) = setup(true);
 
@@ -186,27 +203,108 @@ unconstrained fn test_liquidation() {
         borrower_collateral_note.amount == borrower_collateral_amount,
         "Borrower collateral note incorrect after borrowing"
     );
-    // // 4d. check token balances
-    // let borrower_usdc_balance_after_borrow = env.simulate_utility(
-    //     Token::at(contracts.usdc).balance_of_private(accounts.borrower)
-    // );
-    // assert(
-    //     borrower_usdc_balance_after_borrow == borrow_amount,
-    //     "Borrower USDC balance incorrect after borrowing"
-    // );
-    // // 4e. check LTV and liquidation health are correct
-    // let (ltv, liquidation_health) = env.simulate_utility(
+    // 4d. check token balances
+    let borrower_usdc_balance_after_borrow = env.simulate_utility(
+        Token::at(contracts.usdc).balance_of_private(accounts.borrower)
+    );
+    assert(
+        borrower_usdc_balance_after_borrow == borrow_amount,
+        "Borrower USDC balance incorrect after borrowing"
+    );
+    // 4e. check LTV and liquidation health are correct
+    let (ltv_initial, liquidation_health_initial) = env.simulate_utility(
+        NocomLendingPoolV1::at(contracts.lending_pool)
+            .get_health_factor(
+                contracts.borrower_escrow,
+                expected_borrow_epoch,
+                zec_asserted_price,
+                usdc_asserted_price
+            )
+    );
+    // todo: methodology on expected ltv
+    let mut expected_ltv = 107142;
+    let mut expected_liquidation_health = 114285;
+    assert(
+        (ltv_initial == expected_ltv)
+        & (liquidation_health_initial == expected_liquidation_health),
+        "LTV or liquidation health incorrect after borrowing"
+    );
+
+    // 5. drop the price of ZEC below the liquidation threshold
+    // @ $437 is just under 20% drop -> below .8 liquidation threshold
+    zec_asserted_price = 437 * constants::PRICE_BASE; // $437
+    env.call_public(
+        accounts.admin,
+        MockPriceFeed::at(contracts.price_oracle)
+            .set_price(contracts.zcash, zec_asserted_price)
+    );
+
+    let (ltv_after_drop, liquidation_health_after_drop) = env.simulate_utility(
+        NocomLendingPoolV1::at(contracts.lending_pool)
+            .get_health_factor(
+                contracts.borrower_escrow,
+                expected_borrow_epoch,
+                zec_asserted_price,
+                usdc_asserted_price
+            )
+    );
+
+    debug_log_format("ltv after price drop: {0}\nliq threshold after drop: {1}", [
+        ltv_after_drop as Field,
+        liquidation_health_after_drop as Field
+    ]);
+
+    // 6. liquidate part of the borrower's loan from the liquidator's escrow
+    // 6a. approve the lending pool to spend liquidator's USDC
+    let liquidator_liquidation_amount = 3_500 * constants::WAD;
+    let liquidation_authwit_nonce = unsafe { random() };
+    let liquidation_repay_transfer_call_iface = Token::at(contracts.usdc)
+        .transfer_private_to_public(
+            accounts.liquidator,
+            contracts.lending_pool,
+            liquidator_liquidation_amount,
+            liquidation_authwit_nonce
+        );
+    add_private_authwit_from_call_interface(
+        *env,
+        accounts.liquidator,
+        contracts.lending_pool,
+        liquidation_repay_transfer_call_iface
+    );
+    // 6b. execute the liquidation
+    env.call_private(
+        accounts.liquidator,
+        NocomEscrowV1::at(contracts.borrower_escrow)
+            .liquidate(
+                liquidator_liquidation_amount,
+                liquidation_authwit_nonce,
+                zec_asserted_price,
+                usdc_asserted_price
+            )
+    );
+
+    let (collateral_note_after_liquidation, loan_note_after_liquidation) = env.simulate_utility(
+        NocomLendingPoolV1::at(contracts.lending_pool)
+            .get_collateral_and_debt(contracts.borrower_escrow)
+    );
+    debug_log_format("collateral after liquidation: {0}\nloan after liquidation: {1}", [
+        collateral_note_after_liquidation.amount as Field,
+        loan_note_after_liquidation.amount as Field
+    ]);
+
+    // let (ltv_after_liquidation, liquidation_health_after_liquidation) = env.simulate_utility(
     //     NocomLendingPoolV1::at(contracts.lending_pool)
     //         .get_health_factor(
-    //             accounts.borrower,
+    //             contracts.borrower_escrow,
     //             expected_borrow_epoch,
     //             zec_asserted_price,
     //             usdc_asserted_price
     //         )
     // );
-    // debug_log_format("=======\nLTV: {0},\nLiquidation Health: {1}\n=======", [
-    //     ltv as Field,
-    //     liquidation_health as Field
+
+    // debug_log_format("ltv after liquidation: {0}\nliq threshold after liquidation: {1}", [
+    //     ltv_after_liquidation as Field,
+    //     liquidation_health_after_liquidation as Field
     // ]);
 }
 
