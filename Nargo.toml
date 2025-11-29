@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    # "contracts/private_escrow",
+    "contracts/private_escrow",
     "contracts/price_oracle",
     "contracts/lending_pool"
 ]

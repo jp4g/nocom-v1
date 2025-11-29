@@ -10,6 +10,7 @@ use crate::utils::constants::{
     LIQUIDATION_BONUS,
     BONUS_BASE
 };
+use aztec::oracle::debug_log::debug_log_format;
 
 /**
  * Approximately calculates the amount withdrawn to determine what share of interest should 
@@ -90,7 +91,7 @@ pub fn calculate_ltv_health(
         // weight the collateral value by the max 
         let weighted_collateral_value = (collateral_value_scaled * max_ltv) / LTV_BASE;
         // finally calculate the LTV
-        (loan_value_scaled * LTV_BASE) / weighted_collateral_value
+        (weighted_collateral_value * LTV_BASE) / loan_value_scaled
     }
 }
 

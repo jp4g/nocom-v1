@@ -22,227 +22,151 @@ pub contract NocomEscrowV1 {
 
     #[external("private")]
     #[initializer]
-    fn constructor(pool_address: AztecAddress) {
+    fn constructor(
+        pool_address: AztecAddress,
+        collateral_token_address: AztecAddress,
+        loaned_token_address: AztecAddress,
+    ) {
+        let caller = context.msg_sender().unwrap();
         let self_address = context.this_address();
 
         // Create config note
-        let config = ConfigNote::new(context.msg_sender().unwrap(), pool_address);
-
+        let config = ConfigNote::new(
+            caller,
+            pool_address,
+            collateral_token_address,
+            loaned_token_address
+        );
         // emit to any holders of escrow key
         storage.config.initialize(config).emit(self_address, MessageDelivery.CONSTRAINED_ONCHAIN);
     }
 
-    // fn calculate_collateral() -> u128 {
-    //     storage.con
-    // }
-
     /**
-     * Supply collateral
+     * Register this escrow 
      */
     #[external("private")]
-    fn supply_collateral(asset_address: AztecAddress, amount: u128, authwit_nonce: Field) {
-        // 1. get config
+    fn register(signature: [u8; 64]) {
+        // 1. check caller is escrow owner
         let config = storage.config.get_note();
-        let self_address = context.this_address();
-        let caller = context.msg_sender().unwrap();
-
-        // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 4. initiate deposit into the lending pool
+        // 2. register the escrow in the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .deposit_private(asset_address, amount, caller, authwit_nonce)
+            .register(signature)
             .call(&mut context);
     }
 
-    /**
-     * Withdraw collateral
-     */
     #[external("private")]
-    fn withdraw_collateral(
-        recipient_address: AztecAddress,
-        asset_address: AztecAddress,
+    fn supply_collateral(
         amount: u128,
-        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
-        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
+        authwit_nonce: Field,
     ) {
-        // 1. get config
+        // 1. check caller is escrow owner
         let config = storage.config.get_note();
-        let self_address = context.this_address();
         let caller = context.msg_sender().unwrap();
-
-        // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 3. create partial note to receive tokens to
-        let partial_note_commitment = Token::at(asset_address)
-            .initialize_transfer_commitment(recipient_address, config.pool)
-            .call(&mut context);
-        // 3. initiate withdrawal from the lending pool
+        // 2. initiate deposit into the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .withdraw_private(
-                asset_address,
-                amount,
-                collateral_prices,
-                debt_prices,
-                partial_note_commitment,
-            )
+            .collateralize_private(caller, amount, authwit_nonce)
             .call(&mut context);
     }
 
     #[external("private")]
     fn borrow(
-        receipient_address: AztecAddress,
-        asset_address: AztecAddress,
         amount: u128,
-        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
-        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
+        asserted_collateral_token_price: u128,
+        asserted_debt_token_price: u128,
     ) {
-        // 1. get config
+        // 1. check caller is escrow owner
         let config = storage.config.get_note();
-        let self_address = context.this_address();
         let caller = context.msg_sender().unwrap();
-
-        // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 3. create partial note to receive tokens to
-        let partial_note_commitment = Token::at(asset_address)
-            .initialize_transfer_commitment(receipient_address, config.pool)
+        // 2. get partial note commitment to receive borrowed tokens
+        let partial_note_commitment = Token::at(config.loaned_token_address)
+            .initialize_transfer_commitment(caller, config.pool)
             .call(&mut context);
-        // 3. initiate withdrawal from the lending pool
+        
+        // 3. initiate borrow from the lending pool
         NocomLendingPoolV1::at(config.pool)
             .borrow_private(
-                asset_address,
-                context.msg_sender().unwrap(),
+                caller, // todo: remove once partial note working
                 amount,
-                collateral_prices,
-                debt_prices,
                 partial_note_commitment,
+                asserted_collateral_token_price,
+                asserted_debt_token_price,
             )
             .call(&mut context);
     }
 
     #[external("private")]
-    fn repay(asset_address: AztecAddress, amount: u128, authwit_nonce: Field) {
-        // 1. get config
+    fn withdraw_collateral(
+        amount: u128,
+        asserted_collateral_token_price: u128,
+        asserted_loaned_token_price: u128,
+    ) {
+        // 1. check caller is escrow owner
         let config = storage.config.get_note();
-        let self_address = context.this_address();
         let caller = context.msg_sender().unwrap();
-
-        // 2. ensure caller is escrow owner
         config.assert_holder(&mut context);
 
-        // 3. initiate repayment into the lending pool
+        // 2. get partial note commitment to receive withdrawn tokens
+        let partial_note_commitment = Token::at(config.collateral_token_address)
+            .initialize_transfer_commitment(caller, config.pool)
+            .call(&mut context);
+        
+        // 3. initiate withdrawal from the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .repay_private(asset_address, amount, caller, authwit_nonce)
+            .withdraw_collateral_private(
+                amount,
+                caller, // todo: remove once partial note working
+                partial_note_commitment,
+                asserted_collateral_token_price,
+                asserted_loaned_token_price,
+            )
+            .call(&mut context);
+    }
+
+    #[external("private")]
+    fn repay(amount: u128, authwit_nonce: Field) {
+        // 1. check caller is escrow owner
+        let config = storage.config.get_note();
+        let caller = context.msg_sender().unwrap();
+        config.assert_holder(&mut context);
+
+        // 2. initiate repayment in the lending pool
+        NocomLendingPoolV1::at(config.pool)
+            .repay_loan_private(caller, amount, authwit_nonce)
             .call(&mut context);
     }
 
     #[external("private")]
     fn liquidate(
-        liquidation_asset: AztecAddress,
-        collateral_asset: AztecAddress,
-        amount_to_repay: u128,
+        amount: u128,
         liquidation_authwit_nonce: Field,
-        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
-        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
-        collateral_asset_index: u32,
-        debt_asset_index: u32,
+        asserted_collateral_token_price: u128,
+        asserted_debt_token_price: u128,
     ) {
         // 1. get config
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
 
-        // 2. initiate liquidation in the lending pool
+        // 2. create partial note commitment to receive collateral tokens
+        let caller = context.msg_sender().unwrap();
+        let partial_note_commitment = Token::at(config.collateral_token_address)
+            .initialize_transfer_commitment(caller, config.pool)
+            .call(&mut context);
+        
+        // 3. initiate liquidation in the lending pool
         NocomLendingPoolV1::at(config.pool)
             .liquidate_private(
-                liquidation_asset,
-                collateral_asset,
-                amount_to_repay,
+                amount,
                 caller,
                 liquidation_authwit_nonce,
-                collateral_prices,
-                debt_prices,
-                collateral_asset_index,
-                debt_asset_index,
-            )
-            .call(&mut context);
+                partial_note_commitment,
+                asserted_collateral_token_price,
+                asserted_debt_token_price,
+            ).call(&mut context);
     }
-
-    /**
-     * Borrow collateral
-     */
-    #[external("private")]
-    fn transfer_callback(amount: u128, asset: AztecAddress) {
-        // 1. check caller is pool
-        let config = storage.config.get_note();
-        assert(context.msg_sender().unwrap() == config.pool);
-
-        // 2. transfer tokens in private-to-public
-        Token::at(asset).transfer_private_to_public(context.this_address(), config.pool, amount, 0);
-    }
-
-    #[external("private")]
-    #[view]
-    fn get_health_factor(
-        collateral_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>,
-        debt_prices: BoundedVec<u128, NocomLendingPoolV1::MAX_ASSETS_PER_ACCOUNT>
-    ) -> u128 {
-        let config = storage.config.get_note();
-        NocomLendingPoolV1::at(config.pool)
-            .get_health_factor(collateral_prices, debt_prices)
-            .view(&mut context)
-    }
-
-
-    // /**
-    //  * Fulfil an OTC order as a taker by transfering in the asked tokens and withdrawing the offered tokens
-    //  *
-    //  * @param _nonce - authwit nonce used in `transfer_private_to_private`
-    //  */
-    // #[external("private")]
-    // fn fill_order(_nonce: Field) {
-    //     let config = storage.config.get_note();
-    //     let self_address = context.this_address();
-    //     let caller = context.msg_sender().unwrap();
-
-    //     // transfer ask tokens in
-    //     Token::at(config.buy_token_address)
-    //         .transfer_private_to_private(
-    //             caller,
-    //             self_address,
-    //             config.buy_token_amount,
-    //             _nonce
-    //         )
-    //         .call(&mut context);
-
-    //     Token::at(config.buy_token_address)
-    //         .transfer_private_to_commitment(
-    //             self_address,
-    //             config.partial_note,
-    //             config.buy_token_amount,
-    //             0
-    //         )
-    //         .call(&mut context);
-
-    //     // transfer offer tokens out
-    //     Token::at(config.sell_token_address)
-    //         .transfer_private_to_private(
-    //             self_address,
-    //             caller,
-    //             config.sell_token_amount,
-    //             0
-    //         )
-    //         .call(&mut context);
-
-    //     // emit nullifier to prevent multiple fills
-    //     let fill_nullifier = config.get_nullifier(false);
-    //     context.push_nullifier(fill_nullifier);
-    // }
-
-    // #[external("utility")]
-    // unconstrained fn get_config() -> ConfigNote {
-    //     storage.config.view_note()
-    // }
 }
