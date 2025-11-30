@@ -1,0 +1,14 @@
+{
+  "nocom_escrow-NocomEscrowV1.json": {
+    "contractName": "NocomEscrowV1",
+    "hash": "2a01a41b650c289b6ee45170a96ea3f31a8f6cc70e1a25256af5ff32044ca38c"
+  },
+  "nocom_lending_pool-NocomLendingPoolV1.json": {
+    "contractName": "NocomLendingPoolV1",
+    "hash": "1e754b39e60523ea79ddedbcca6d699c1737ed6e931e91aa66c282f2e8874bce"
+  },
+  "nocom_mock_price_oracle-MockPriceFeed.json": {
+    "contractName": "MockPriceFeed",
+    "hash": "80466cedc53ca16d8382a2b530ea08cc514a832d77f1cf801717b03337f18def"
+  }
+}

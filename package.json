@@ -1,12 +1,32 @@
 {
-  "name": "basic",
-  "module": "index.ts",
-  "type": "module",
-  "private": true,
-  "devDependencies": {
-    "@types/bun": "latest"
+  "name": "nocom-v1",
+  "workspaces": {
+    "packages":["packages/*"],
+    "catalog": {
+      "@aztec/aztec.js": "3.0.0-devnet.2",
+      "@aztec/accounts": "3.0.0-devnet.2",
+      "@aztec/constants": "3.0.0-devnet.2",
+      "@aztec/entrypoints": "3.0.0-devnet.2",
+      "@aztec/ethereum": "3.0.0-devnet.2",
+      "@aztec/foundation": "3.0.0-devnet.2",
+      "@aztec/noir-contracts.js": "3.0.0-devnet.2",
+      "@aztec/pxe": "3.0.0-devnet.2",
+      "@aztec/stdlib": "3.0.0-devnet.2",
+      "@aztec/test-wallet": "3.0.0-devnet.2",
+      "@jest/globals": "^30.0.5",
+      "@types/bun": "latest",
+      "@types/jest": "^30.0.0",
+      "dotenv": "^17.2.1",
+      "jest": "^30.0.5",
+      "typescript": "^5.0.0",
+      "@types/node": "latest",
+    }
   },
-  "peerDependencies": {
-    "typescript": "^5"
+  "scripts": {
+    "deps": "bun run scripts/deps.ts",
+    "postinstall": "bun run deps"
+  },
+  "config": {
+    "aztecVersion": "v3.0.0-devnet.5"
   }
 }
