@@ -1,0 +1,32 @@
+{
+  "name": "liquidator",
+  "version": "0.1.0",
+  "description": "DeFi liquidation infrastructure for monitoring prices and liquidating undercollateralized positions",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "shared"
+  ],
+  "scripts": {
+    "dev:price": "bun --watch services/price-service/src/index.ts",
+    "dev:monitor": "bun --watch services/note-monitor/src/index.ts",
+    "dev:liquidator": "bun --watch services/liquidation-engine/src/index.ts",
+    "dev:all": "bun run dev:price & bun run dev:monitor & bun run dev:liquidator",
+    "build": "bun run build:shared && bun run build:services",
+    "build:shared": "cd shared && bun build",
+    "build:services": "cd services/price-service && bun build && cd ../note-monitor && bun build && cd ../liquidation-engine && bun build",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.{ts,json,md}\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@typescript-eslint/eslint-plugin": "^8.18.2",
+    "@typescript-eslint/parser": "^8.18.2",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@liquidator/shared",
+  "version": "0.1.0",
+  "description": "Shared types and utilities for liquidator services",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "build": "bun build src/index.ts --outdir=dist --target=bun"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

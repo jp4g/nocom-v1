@@ -146,7 +146,7 @@ describe("Private Transfer Demo Test", () => {
 
     test("e2e", async () => {
         // 1. lender supplies collateral
-        const lenderSupplyAmount = precision(50000n); // 50,000 USDC
+        const lenderSupplyAmount = precision(10000n); // 10,000 USDC
         await supplyLiquidity(
             wallet,
             lenderAddress,
@@ -209,12 +209,14 @@ describe("Private Transfer Demo Test", () => {
         );
         console.log("Liquidator liquidated part of the borrower's position");
 
-        debtPosition = await getDebtPosition(
-            borrowerAddress,
-            lendingPoolContract,
-            borrowerEscrow.address,
-            node
-        );
-        console.log("Debt position after liquidation: ", debtPosition)
+        // 6. advance time by 12 hours so we get some more interest
+
+        // 7. repay the remaining loan fully
+
+        // 8. withdraw remaining collateral
+
+        // 9. withdraw lender funds with interest
+
+        // 
     });
 });
