@@ -7,11 +7,15 @@
   "private": true,
   "scripts": {
     "build:nr": "bun run scripts/build_contracts.ts",
-    "test:nr": "aztec test"
+    "test:nr": "aztec test",
+    "sandbox": "aztec start --sandbox"
   },
   "exports": {
-    ".":  "./src/index.ts",
-    "./artifacts": "./src/artifacts/index.ts"
+    "./artifacts": "./ts/src/artifacts/index.ts",
+    "./contract": "./ts/src/contract/index.ts",
+    "./constants": "./ts/src/constants.ts",
+    "./fees": "./ts/src/fees.ts",
+    "./utils": "./ts/src/utils.ts"
   },
   "dependencies": {
       "@aztec/aztec.js": "catalog:",

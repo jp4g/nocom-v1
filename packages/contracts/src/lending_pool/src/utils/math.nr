@@ -12,6 +12,11 @@ use crate::utils::constants::{
 };
 use aztec::oracle::debug_log::debug_log_format;
 
+/// WARNING: THIS MATH IS APPROXIMATE AND HACKY FOR THE SAKE OF A HACKATHON
+/// REQUIRED IMPROVEMENTS USING RAY MATH TO ENSURE PRECISION
+/// ALL THE DIFFERENT "BASES" IN CONSTANTS WILL BE UPGRADED TO STANDARD METHODOLOGY
+/// <3
+
 /**
  * Approximately calculates the amount withdrawn to determine what share of interest should 
  * be extracted for a protocol fee

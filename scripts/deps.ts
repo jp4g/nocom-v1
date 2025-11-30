@@ -36,6 +36,17 @@ async function main() {
       "-f"
     ]);
 
+    // copy the bytecode to the contract target dir for txe testing
+    const contractTargetDir = join(scriptDir, "../packages/contracts/target");
+    if (!existsSync(contractTargetDir)) {
+      console.log("Creating contracts target dir...");
+      await execCommand("mkdir", ["-p", contractTargetDir]);
+    }
+    await copyFileWithLog(
+      tokenArtifactDepsPath,
+      join(contractTargetDir, "nocom_escrow-Token.json")
+    );
+
     // copy the artifacts to the contracts artifacts dir
     console.log("Copying token artifacts...");
     const artifactsPath = join(scriptDir, "../packages/contracts/src/artifacts/token");

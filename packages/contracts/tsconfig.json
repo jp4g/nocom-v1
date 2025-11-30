@@ -4,6 +4,6 @@
         "outDir": "./dist"
     },
     "paths": {
-        "@nocom-v1/contracts/*": ["./src/*"]
+        "@nocom-v1/contracts/*": ["./ts/src/*"]
     }
 }
