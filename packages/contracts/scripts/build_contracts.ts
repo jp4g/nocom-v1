@@ -11,15 +11,15 @@ async function main() {
     const contractsDir = join(scriptDir, "..");
     console.log(`Compiling nocom contracts...`);
     process.chdir(contractsDir);
-    // await execCommand("aztec-nargo", ["compile"]);
-    // await execCommand("aztec-postprocess-contract");
-    // // Generate bindings
-    // await execCommand("aztec", [
-    //   "codegen",
-    //   "./target/nocom_escrow-NocomEscrowV1.json",
-    //   "-o", "./target",
-    //   "-f"
-    // ]);
+    await execCommand("aztec-nargo", ["compile"]);
+    await execCommand("aztec-postprocess-contract");
+    // Generate bindings
+    await execCommand("aztec", [
+      "codegen",
+      "./target/nocom_escrow-NocomEscrowV1.json",
+      "-o", "./target",
+      "-f"
+    ]);
     await execCommand("aztec", [
       "codegen",
       "./target/nocom_lending_pool-NocomLendingPoolV1.json",

@@ -1,10 +1,11 @@
-import { before, describe, test } from "node:test";
+import { before, describe, test, beforeEach } from "node:test";
 import { expect } from '@jest/globals';
 import { getInitialTestAccountsData } from '@aztec/accounts/testing';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { Fr } from '@aztec/aztec.js/fields';
 import { createAztecNodeClient, type AztecNode } from "@aztec/aztec.js/node";
 import { TestWallet } from '@aztec/test-wallet/server';
+import { CheatCodes } from "@aztec/aztec/testing";
 import {
     NocomEscrowV1Contract,
     NocomLendingPoolV1Contract,
@@ -22,18 +23,22 @@ import {
     liquidatePosition
 } from "@nocom-v1/contracts/contract";
 import { precision } from "@nocom-v1/contracts/utils";
-import { supplyLiquidity } from "../src/contract/pool";
+import { getDebtPosition, supplyLiquidity } from "../src/contract/pool";
 import { updateOraclePrice } from "../src/contract/oracle";
+import { TestDateProvider } from "@aztec/foundation/timer";
 
-const { AZTEC_NODE_URL = "http://localhost:8080" } = process.env;
+const {
+    AZTEC_NODE_URL = "http://localhost:8080",
+    L1_RPC_URL = "http://localhost:8545",
+} = process.env;
 
 describe("Private Transfer Demo Test", () => {
 
     let node: AztecNode;
+    let cheatcodes: CheatCodes;
 
-    let wallet: TestWallet;
     // just use one wallet so we don't need to run 5 different PXE's in nodejs
-
+    let wallet: TestWallet;
     let adminAddress: AztecAddress;
     let lenderAddress: AztecAddress;
     let borrowerAddress: AztecAddress;
@@ -54,6 +59,7 @@ describe("Private Transfer Demo Test", () => {
     before(async () => {
         // setup aztec node client
         node = createAztecNodeClient(AZTEC_NODE_URL);
+        cheatcodes = await CheatCodes.create([L1_RPC_URL], node, new TestDateProvider());
         console.log(`Connected to Aztec node at "${AZTEC_NODE_URL}"`);
 
         // setup wallets
@@ -75,14 +81,14 @@ describe("Private Transfer Demo Test", () => {
         // deploy token contracts
         usdcContract = await deployTokenContract(wallet, adminAddress, TOKEN_METADATA.usdc);
         zcashContract = await deployTokenContract(wallet, adminAddress, TOKEN_METADATA.zcash);
-
+        console.log("Deployed token contracts");
         // mint tokens
         // mint zcash to borrower (collateral)
         await zcashContract
             .withWallet(wallet)
             .methods.mint_to_private(
                 borrowerAddress,
-                precision(1000n, 18n)
+                precision(1000n)
             )
             .send({ from: adminAddress })
             .wait();
@@ -91,14 +97,14 @@ describe("Private Transfer Demo Test", () => {
             .withWallet(wallet)
             .methods.mint_to_private(
                 lenderAddress,
-                precision(100000n, 6n)
+                precision(100000n)
             )
             .send({ from: adminAddress })
             .wait();
-
+        console.log("Minted tokens to test accounts");
         // deploy price oracle
         priceOracleContract = await deployPriceOracleContract(wallet, adminAddress);
-
+        console.log("Deployed price oracle contract");
         // set prices
         await updateOraclePrice(
             adminAddress,
@@ -106,6 +112,7 @@ describe("Private Transfer Demo Test", () => {
             [zcashContract.address, usdcContract.address],
             [zcashPrice, usdcPrice]
         );
+        console.log("Set initial asset prices in oracle");
 
         // deploy lending pool
         lendingPoolContract = await deployIsolatedPoolContract(
@@ -120,6 +127,7 @@ describe("Private Transfer Demo Test", () => {
             ZCASH_LTV,
             ZCASH_LIQUIDATION_THRESHOLD
         );
+        console.log("Deployed lending pool contract");
 
     });
 
@@ -132,6 +140,7 @@ describe("Private Transfer Demo Test", () => {
             zcashContract.address,
             usdcContract.address,
         ));
+        console.log(`Deployed new borrower escrow contract at ${borrowerEscrow.address.toString()}`);
         // do not need to do key sharing with liquidator since same wallet
     });
 
@@ -145,6 +154,7 @@ describe("Private Transfer Demo Test", () => {
             usdcContract,
             lenderSupplyAmount
         );
+        console.log("Lender supplied liquidity to the pool");
 
         // 2. borrower deposits collateral into escrow
         const borrowerCollateralAmount = precision(20n, 18n); // 20 ZCASH
@@ -156,6 +166,7 @@ describe("Private Transfer Demo Test", () => {
             zcashContract,
             borrowerCollateralAmount
         );
+        console.log("Borrower deposited collateral into escrow");
 
         // 3. borrower takes usdc loan against collateral
         const borrowerDebtPrincipalAmount = precision(7000n); // 3,000 USDC
@@ -166,6 +177,7 @@ describe("Private Transfer Demo Test", () => {
             zcashPrice,
             usdcPrice
         );
+        console.log("Borrower borrowed USDC against collateral");
 
         // 4. drop the price of zcash
         zcashPrice = precision(437n, 4n); // drop from $500 to $437 which will just undercollateralize
@@ -175,18 +187,34 @@ describe("Private Transfer Demo Test", () => {
             [zcashContract.address],
             [zcashPrice]
         );
-
+        console.log("Updated ZCASH price in oracle to trigger undercollateralization");
+        let debtPosition = await getDebtPosition(
+            borrowerAddress,
+            lendingPoolContract,
+            borrowerEscrow.address,
+            node
+        );
+        console.log("Debt position before liquidation: ", debtPosition)
         // 5. liquidate the borrower
         const amountToLiquidate = precision(3500n); // liquidate half the loan
         await liquidatePosition(
             wallet,
             liquidatorAddress,
             borrowerEscrow,
-            zcashContract,
+            usdcContract,
             lendingPoolContract.address,
             amountToLiquidate,
             zcashPrice,
             usdcPrice
         );
+        console.log("Liquidator liquidated part of the borrower's position");
+
+        debtPosition = await getDebtPosition(
+            borrowerAddress,
+            lendingPoolContract,
+            borrowerEscrow.address,
+            node
+        );
+        console.log("Debt position after liquidation: ", debtPosition)
     });
 });

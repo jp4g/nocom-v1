@@ -4,7 +4,7 @@ import type { TokenContract } from "../artifacts";
 import { AuthWitness } from "@aztec/stdlib/auth-witness";
 import { Fr } from "@aztec/aztec.js/fields";
 
-export async function privateTransferAuthwit(
+export async function privateToPublicTransferAuthwit(
     wallet: BaseWallet,
     from: AztecAddress,
     token: TokenContract,
@@ -14,7 +14,7 @@ export async function privateTransferAuthwit(
 ): Promise<{ authwit: AuthWitness, nonce: Fr }> {
     // construct call data
     const nonce = Fr.random();
-    const call = await token.withWallet(wallet).methods.transfer_private_to_private(
+    const call = await token.withWallet(wallet).methods.transfer_private_to_public(
         from,
         to,
         amount,

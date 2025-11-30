@@ -14,7 +14,7 @@ export async function updateOraclePrice(
     // check inputs
     if (assetAddresses.length !== prices.length)
         throw new Error("Asset addresses and prices arrays must have the same length");
-    if (assetAddresses.length > 0 || prices.length === 0)
+    if (assetAddresses.length === 0 || prices.length === 0)
         throw new Error("Asset addresses and prices arrays must not be empty");
     if (assetAddresses.length > 4 || prices.length > 4)
         throw new Error("Asset addresses and prices arrays must not have more than 4 elements");

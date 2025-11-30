@@ -3,7 +3,7 @@ import { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { TxReceipt } from "@aztec/stdlib/tx";
 import type { NocomEscrowV1Contract, TokenContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
-import { privateTransferAuthwit } from "./token";
+import { privateToPublicTransferAuthwit } from "./token";
 
 export async function registerEscrowWithPool(
     from: AztecAddress,
@@ -25,7 +25,7 @@ export async function depositCollateral(
     amount: bigint
 ): Promise<TxReceipt> {
     // 1. create authwit
-    const { authwit, nonce } = await privateTransferAuthwit(
+    const { authwit, nonce } = await privateToPublicTransferAuthwit(
         wallet,
         from,
         tokenContract,
@@ -70,7 +70,7 @@ export async function liquidatePosition(
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
     // 1. create authwit
-    const { authwit, nonce } = await privateTransferAuthwit(
+    const { authwit, nonce } = await privateToPublicTransferAuthwit(
         wallet,
         from,
         collateralTokenContract,
@@ -89,4 +89,4 @@ export async function liquidatePosition(
     )
         .send(opts.send)
         .wait(opts.wait);
-}
+};

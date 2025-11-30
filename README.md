@@ -1,6 +1,9 @@
 # Nocom Fi 
 No Comment Finance - encrypted money market with private collateral and loans
 
+## Installation
+NOTE: bun is broken with workspaces, use `pnpm` on each package
+
 ## Todo:
  - Validate interest rate math with tests
  - Add liquidation logic
