@@ -3,7 +3,14 @@ import {
     INTEREST_BASE,
     SECONDS_PER_YEAR,
     WAD,
+    LTV_BASE,
+    LTV_RATIO_BASE,
+    PRICE_BASE,
+    LIQUIDATION_BONUS,
+    BONUS_BASE,
+    PROTOCOL_LIQUIDATION_FEE
 } from "../constants";
+import type { LiquidationResult } from "../types";
 
 export function calculateEpochFromTimestamp(timestamp: number) {
     Math.ceil(timestamp / EPOCH_LENGTH)
@@ -76,4 +83,95 @@ function computeMultiplier(ratePerSecond: bigint, dt: bigint): bigint {
   }
   
   return res;
+}
+
+/**
+ * Approximately calculates the amount withdrawn to determine what share of interest should 
+ * be extracted for a protocol fee
+ * @param total - total amount being withdrawn from
+ * @param amountToWithdraw - amount being withdrawn
+ * @return withdrawRatio - ratio of amount being withdrawn scaled to LTV_BASE
+ */
+export function calculateWithdrawRatio(
+  total: bigint,
+  amountToWithdraw: bigint
+): bigint {
+  const totalScaled = total / LTV_RATIO_BASE;
+  const amountScaled = amountToWithdraw / LTV_RATIO_BASE;
+  return (amountScaled * LTV_BASE) / totalScaled;
+}
+
+/**
+ * Calculates the amount of collateral to be seized during liquidation
+ *
+ * @param debtAmount - amount of debt being repaid (in WAD)
+ * @param debtPrice - price of the debt asset (in PRICE_BASE)
+ * @param collateralPrice - price of the collateral asset (in PRICE_BASE)
+ * @return LiquidationResult containing (totalCollateralSeized, liquidatorCollateralAmount, protocolFee)
+ */
+export function calculateLiquidation(
+  debtAmount: bigint,
+  debtPrice: bigint,
+  collateralPrice: bigint
+): LiquidationResult {
+  // 1. calculate the value of the debt being repaid
+  const debtValue = (debtAmount * debtPrice) / PRICE_BASE;
+  
+  // 2. calculate the amount of collateral needed to cover this value
+  const collateralAmount = (debtValue * PRICE_BASE) / collateralPrice;
+  
+  // 3. calculate the total liquidation bonus (10% of collateral seized)
+  const totalLiquidationBonus = (collateralAmount * LIQUIDATION_BONUS) / BONUS_BASE;
+  
+  // 4. calculate the protocol fee on the bonus (10% of bonus)
+  const protocolFee = (totalLiquidationBonus * PROTOCOL_LIQUIDATION_FEE) / BONUS_BASE;
+  
+  // 5. get the final amounts for each party
+  const totalCollateralSeized = collateralAmount + totalLiquidationBonus;
+  const liquidatorCollateralAmount = totalCollateralSeized - protocolFee;
+  
+  return {
+    totalCollateralSeized,
+    liquidatorCollateralAmount,
+    protocolFee
+  };
+}
+
+/**
+ * Calculates the LTV health ratio.
+ * @notice can be used with liquidation threshold as well (as max LTV)
+ * @notice should be above LTV_THRESHOLD to be healthy
+ *
+ * @param loanedAssetPrice - price of the loaned asset (in PRICE_BASE)
+ * @param loanedAssetAmount - amount of the loaned asset (in WAD)
+ * @param collateralAssetPrice - price of the collateral asset (in PRICE_BASE)
+ * @param collateralAssetAmount - amount of the collateral asset (in WAD)
+ * @param maxLtv - maximum loan-to-value ratio allowed (in LTV_BASE)
+ * @return LTV health ratio
+ */
+export function calculateLtvHealth(
+  loanedAssetPrice: bigint,
+  loanedAssetAmount: bigint,
+  collateralAssetPrice: bigint,
+  collateralAssetAmount: bigint,
+  maxLtv: bigint
+): bigint {
+  // 1. calculate the value of the loan and collateral
+  const loanValue = (loanedAssetAmount * loanedAssetPrice) / PRICE_BASE;
+  const collateralValue = (collateralAssetAmount * collateralAssetPrice) / PRICE_BASE;
+
+  // 2. scale values so they don't overflow
+  // todo: investigate bigint precision handling
+  const collateralValueScaled = collateralValue / LTV_RATIO_BASE;
+  const loanValueScaled = loanValue / LTV_RATIO_BASE;
+
+  // 3. determine the current LTV
+  if (loanValueScaled === 0n) {
+    return 0n;
+  } else {
+    // weight the collateral value by the max 
+    const weightedCollateralValue = (collateralValueScaled * maxLtv) / LTV_BASE;
+    // finally calculate the LTV
+    return (weightedCollateralValue * LTV_BASE) / loanValueScaled;
+  }
 }
