@@ -5,7 +5,8 @@
   "scripts": {
     "build:nr": "bun run scripts/build_contracts.ts",
     "test:nr": "aztec test",
-    "sandbox": "aztec start --sandbox"
+    "sandbox": "aztec start --sandbox",
+    "deploy": "bun run scripts/deploy.ts"
   },
   "exports": {
     "./artifacts": "./ts/src/artifacts/index.ts",
