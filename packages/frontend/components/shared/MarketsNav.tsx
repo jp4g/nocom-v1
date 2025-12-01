@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { Layers } from 'lucide-react';
 import { useWallet } from '@/hooks/useWallet';
@@ -11,23 +13,47 @@ export default function MarketsNav() {
 
   const isConnected = status === 'connected';
   const isConnecting = status === 'connecting';
+   const pathname = usePathname();
 
   return (
     <nav className="fixed top-0 w-full z-50 glass-header h-16">
       <div className="max-w-[1400px] mx-auto px-6 h-full flex items-center justify-between">
         {/* Logo */}
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3">
           <div className="w-8 h-8 bg-brand-purple rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(91,30,138,0.5)]">
             <Layers className="w-5 h-5 text-white" />
           </div>
           <span className="font-semibold text-lg tracking-tight">Ghost Protocol</span>
-        </div>
+        </Link>
 
         {/* Nav Links */}
         <div className="hidden md:flex items-center gap-8">
-          <a href="#" className="text-sm font-medium text-white border-b-2 border-brand-purple pb-0.5">Markets</a>
-          <a href="#" className="text-sm font-medium text-text-muted hover:text-white transition-colors">Portfolio</a>
-          <a href="#" className="text-sm font-medium text-text-muted hover:text-white transition-colors">Governance</a>
+          <Link
+            href="/app"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/app'
+                ? 'text-white border-b-2 border-brand-purple pb-0.5'
+                : 'text-text-muted hover:text-white'
+            }`}
+          >
+            Markets
+          </Link>
+          <Link
+            href="/portfolio"
+            className={`text-sm font-medium transition-colors ${
+              pathname === '/portfolio'
+                ? 'text-white border-b-2 border-brand-purple pb-0.5'
+                : 'text-text-muted hover:text-white'
+            }`}
+          >
+            Portfolio
+          </Link>
+          <Link
+            href="#"
+            className="text-sm font-medium text-text-muted hover:text-white transition-colors"
+          >
+            Governance
+          </Link>
         </div>
 
         {/* Connect Button */}
