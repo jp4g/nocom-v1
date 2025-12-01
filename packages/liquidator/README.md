@@ -173,10 +173,15 @@ pnpm --filter @liquidator/note-monitor start
 pnpm --filter @liquidator/liquidation-engine start
 ```
 
-**Start All Services:**
+**Start All Services (recommended for development):**
 ```bash
+# Runs all three services concurrently with color-coded output
 pnpm dev:all
+
+# Press Ctrl+C to stop all services
 ```
+
+This uses `concurrently` to run all services in parallel with labeled output.
 
 ### Testing the Price Service
 

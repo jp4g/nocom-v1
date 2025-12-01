@@ -17,6 +17,8 @@ export const PROTOCOL_LIQUIDATION_FEE = 10n; // 10% of bonus
 
 export const HEALTH_FACTOR_THRESHOLD = precision(1n, 5n);
 
+export const USDC_LTV = precision(85n, 3n);
+export const USDC_LIQUIDATION_THRESHOLD = precision(90n, 3n);
 export const ZCASH_LTV = precision(75n, 3n);
 export const ZCASH_LIQUIDATION_THRESHOLD = precision(80n, 3n);
 
