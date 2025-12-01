@@ -4,15 +4,22 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type PropsWithChildren,
 } from 'react'
-import { type AztecNode, createAztecNodeClient, type Aliased } from '@aztec/aztec.js/node'
-import type { Wallet } from '@aztec/aztec.js/wallet'
+import { type AztecNode, createAztecNodeClient } from '@aztec/aztec.js/node'
+import type { Wallet, Aliased } from '@aztec/aztec.js/wallet'
 import { AztecAddress } from '@aztec/stdlib/aztec-address'
 import type { EmbeddedWallet } from '@/lib/wallet/embeddedWallet'
+import { registerPublicContracts } from '@/lib/contract'
+import type {
+  MockPriceFeedContract,
+  NocomLendingPoolV1Contract,
+  TokenContract,
+} from '@nocom-v1/contracts/artifacts'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -26,6 +33,14 @@ type WalletHandle =
   | { type: 'embedded'; instance: EmbeddedWallet }
   | { type: 'extension'; instance: Wallet }
 
+export type Contracts = {
+  usdc: TokenContract
+  zcash: TokenContract
+  oracle: MockPriceFeedContract
+  zecDebtPool: NocomLendingPoolV1Contract
+  usdcDebtPool: NocomLendingPoolV1Contract
+}
+
 export type WalletContextValue = {
   status: WalletStatus
   providerType?: WalletProviderType
@@ -33,6 +48,7 @@ export type WalletContextValue = {
   activeAccount?: WalletAccount
   wallet?: WalletHandle
   node?: AztecNode
+  contracts?: Contracts
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
   setActiveAccount: (address: string) => void
@@ -44,6 +60,15 @@ const WalletContext = createContext<WalletContextValue | undefined>(undefined)
 const DEFAULT_NODE_URL = process.env.NEXT_PUBLIC_AZTEC_NODE_URL ?? 'http://localhost:8080'
 
 const normaliseAlias = (alias?: string) => alias?.replace(/^accounts:/, '') ?? ''
+
+// Helper function to get contract addresses - called at runtime
+const getContractAddresses = () => ({
+  USDC_CONTRACT: process.env.NEXT_PUBLIC_USDC_CONTRACT!,
+  ZCASH_CONTRACT: process.env.NEXT_PUBLIC_ZCASH_CONTRACT!,
+  PRICE_ORACLE_CONTRACT: process.env.NEXT_PUBLIC_PRICE_ORACLE_CONTRACT!,
+  ZEC_DEBT_POOL_CONTRACT: process.env.NEXT_PUBLIC_ZEC_DEBT_POOL_CONTRACT!,
+  USDC_DEBT_POOL_CONTRACT: process.env.NEXT_PUBLIC_USDC_DEBT_POOL_CONTRACT!,
+})
 
 const mapEmbeddedAccounts = (accounts: Aliased<AztecAddress>[]): WalletAccount[] =>
   accounts
@@ -82,6 +107,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const [accounts, setAccounts] = useState<WalletAccount[]>([])
   const [node, setNode] = useState<AztecNode | undefined>(undefined)
   const [activeAccountState, setActiveAccountState] = useState<WalletAccount | undefined>(undefined)
+  const [contracts, setContracts] = useState<Contracts | undefined>(undefined)
 
   const walletHandleRef = useRef<WalletHandle | undefined>(undefined)
   const activeAccountRef = useRef<WalletAccount | undefined>(undefined)
@@ -109,6 +135,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setAccounts([])
     setNode(undefined)
     setActiveAccountInternal(undefined)
+    setContracts(undefined)
   }, [setActiveAccountInternal])
 
   const refreshAccounts = useCallback(async () => {
@@ -186,6 +213,25 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     [accounts, setActiveAccountInternal],
   )
 
+  // Background initialization of sender connections after wallet connects
+  useEffect(() => {
+    const initializeSenders = async () => {
+      if (status === 'connected' && walletHandleRef.current?.type === 'embedded' && node) {
+        try {
+          const wallet = walletHandleRef.current.instance
+          console.log("Initializing contracts...")
+          const initializedContracts = await registerPublicContracts(wallet);
+          setContracts(initializedContracts)
+          console.log("Registered all contracts in address book")
+        } catch (error) {
+          console.error('Failed to initialize senders:', error)
+        }
+      }
+    }
+
+    initializeSenders()
+  }, [status])
+
   const value = useMemo<WalletContextValue>(
     () => ({
       status,
@@ -194,6 +240,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       activeAccount: activeAccountState,
       wallet: walletHandleRef.current,
       node,
+      contracts,
       connect,
       disconnect,
       setActiveAccount,
@@ -204,6 +251,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       providerType,
       accounts,
       activeAccountState,
+      contracts,
       connect,
       disconnect,
       setActiveAccount,
@@ -220,6 +268,14 @@ export const useWallet = () => {
     throw new Error('useWallet must be used within a WalletProvider')
   }
   return context
+}
+
+export const useContracts = () => {
+  const { contracts } = useWallet()
+  if (!contracts) {
+    throw new Error('Contracts not initialized - wallet must be connected and contracts loaded')
+  }
+  return contracts
 }
 
 export default WalletContext
