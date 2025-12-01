@@ -20,10 +20,12 @@ import {
     deployPriceOracleContract,
     depositCollateral,
     borrowFromPool,
-    liquidatePosition
+    liquidatePosition,
+    repayDebt,
+    withdrawCollateral
 } from "@nocom-v1/contracts/contract";
-import { precision } from "@nocom-v1/contracts/utils";
-import { getDebtPosition, supplyLiquidity } from "../src/contract/pool";
+import { advanceTime, precision } from "@nocom-v1/contracts/utils";
+import { getDebtPosition, getLoanPosition, supplyLiquidity, withdrawLiquidity } from "../src/contract/pool";
 import { updateOraclePrice } from "../src/contract/oracle";
 import { TestDateProvider } from "@aztec/foundation/timer";
 
@@ -178,8 +180,13 @@ describe("Private Transfer Demo Test", () => {
             usdcPrice
         );
         console.log("Borrower borrowed USDC against collateral");
+        // 4. advance time by 24 hours to get a little interest
+        // note: we can only advace time by like 18 hours at a time due to pxe limitations >:(
+        // note: we need to mine a tx after advancing time so do it via minting 1 token to 0 address
+        for (let i = 0; i < 2; i++)
+            advanceTime(cheatcodes, adminAddress, usdcContract);
 
-        // 4. drop the price of zcash
+        // 5. drop the price of zcash
         zcashPrice = precision(437n, 4n); // drop from $500 to $437 which will just undercollateralize
         await updateOraclePrice(
             adminAddress,
@@ -188,14 +195,8 @@ describe("Private Transfer Demo Test", () => {
             [zcashPrice]
         );
         console.log("Updated ZCASH price in oracle to trigger undercollateralization");
-        let debtPosition = await getDebtPosition(
-            borrowerAddress,
-            lendingPoolContract,
-            borrowerEscrow.address,
-            node
-        );
-        console.log("Debt position before liquidation: ", debtPosition)
-        // 5. liquidate the borrower
+
+        // 6. liquidate the borrower
         const amountToLiquidate = precision(3500n); // liquidate half the loan
         await liquidatePosition(
             wallet,
@@ -209,14 +210,54 @@ describe("Private Transfer Demo Test", () => {
         );
         console.log("Liquidator liquidated part of the borrower's position");
 
-        // 6. advance time by 12 hours so we get some more interest
-
         // 7. repay the remaining loan fully
+        // mint some extra usdc to the borrower to repay
+        await usdcContract.methods.mint_to_private(
+            borrowerAddress,
+            precision(4000n)
+        ).send({ from: adminAddress }).wait();
+        let debtPosition = await getDebtPosition(
+            borrowerAddress,
+            lendingPoolContract,
+            borrowerEscrow.address,
+            node
+        );
+        const totalOwed = debtPosition.principal + debtPosition.interest;
+        console.log(`Borrower principal: ${debtPosition.principal}\n interest: ${debtPosition.interest}\n total owed: ${totalOwed}`);
+        const borrowerBalance = await usdcContract.methods.balance_of_private(borrowerAddress).simulate({ from: borrowerAddress });
+        console.log(`Borrower USDC balance: ${borrowerBalance}`);
+        await repayDebt(
+            wallet,
+            borrowerAddress,
+            borrowerEscrow,
+            usdcContract,
+            lendingPoolContract.address,
+            debtPosition.principal,
+        );
+        console.log("Borrower repaid remaining debt");
 
         // 8. withdraw remaining collateral
+        await withdrawCollateral(
+            borrowerAddress,
+            borrowerEscrow,
+            1n,
+            zcashPrice,
+            usdcPrice
+        );
+        console.log("Borrower withdrew remaining collateral");
 
         // 9. withdraw lender funds with interest
-
-        // 
+        const loanPosition = await getLoanPosition(
+            lenderAddress,
+            lendingPoolContract,
+            node
+        );
+        const lenderOwedAmount = loanPosition.principal + loanPosition.interest;
+        await withdrawLiquidity(
+            lenderAddress,
+            lendingPoolContract,
+            lenderOwedAmount
+        );
+        console.log("Lender withdrew supplied liquidity plus interest");
     });
 });

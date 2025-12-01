@@ -16,8 +16,6 @@ export function calculateEpochFromTimestamp(timestamp: number) {
     Math.ceil(timestamp / EPOCH_LENGTH)
 }
 
-
-
 /**
  * Calculate interest accrued on a principal over time using continuous compounding.
  * @notice Estimates interest - todo: use u256 with RAY math

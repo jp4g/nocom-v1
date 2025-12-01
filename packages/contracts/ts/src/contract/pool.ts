@@ -9,6 +9,18 @@ import type { AztecNode } from "@aztec/aztec.js/node";
 import { EPOCH_LENGTH, LEND_INTEREST } from "../constants";
 import { calculateInterest } from "../utils/math";
 
+/**
+ * Supply liquidity to the lending pool
+ * @notice: lending does not require an escrow
+ * 
+ * @param wallet - wallet instance holding the `from` account
+ * @param from - address supplying liquidity
+ * @param poolContract - lending pool contract
+ * @param tokenContract - token contract of the asset being supplied
+ * @param amount - amount to supply
+ * @param opts - send and wait options
+ * @returns receipt upon tx confirmation
+ */
 export async function supplyLiquidity(
     wallet: BaseWallet,
     from: AztecAddress,
@@ -34,6 +46,33 @@ export async function supplyLiquidity(
         .wait(opts.wait);
 }
 
+/**
+ * Withdraw liquidity from the lending pool
+ * 
+ * @param from - caller address
+ * @param poolContract - lending pool contract
+ * @param amount - amount to withdraw
+ * @param opts - send and wait options
+ * @returns - receipt upon tx confirmation
+ */
+export async function withdrawLiquidity(
+    from: AztecAddress,
+    poolContract: NocomLendingPoolV1Contract,
+    amount: bigint,
+    opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
+): Promise<TxReceipt> {
+    return await poolContract.methods.withdraw_loan_private(amount, from, 0n)
+        .send(opts.send)
+        .wait(opts.wait);
+}
+
+
+/**
+ * Get the total utilization of the lending pool
+ * @param from - caller address (doesn't really matter here)
+ * @param pool - lending pool contract
+ * @returns - total supplied and borrowed amounts
+ */
 export async function getPoolUtilization(
     from: AztecAddress,
     pool: NocomLendingPoolV1Contract
@@ -123,3 +162,4 @@ export async function getDebtPosition(
     );
     return { collateral, startingEpoch: Number(startingEpoch), principal, interest };
 }
+

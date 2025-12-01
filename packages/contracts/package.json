@@ -12,7 +12,8 @@
     "./contract": "./ts/src/contract/index.ts",
     "./constants": "./ts/src/constants.ts",
     "./fees": "./ts/src/fees.ts",
-    "./utils": "./ts/src/utils/index.ts"
+    "./utils": "./ts/src/utils/index.ts",
+    "./types": "./ts/src/types.ts"
   },
   "dependencies": {
     "@aztec/aztec": "3.0.0-devnet.5",

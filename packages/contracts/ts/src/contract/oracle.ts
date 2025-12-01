@@ -4,6 +4,16 @@ import type { MockPriceFeedContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import type { TxReceipt } from "@aztec/stdlib/tx";
 
+
+/**
+ * Updates the price oracle for one or more assets
+ * @param from - the oracle admin & tx sender
+ * @param oracleContract - the price oracle contract
+ * @param assetAddresses - array of asset addresses to update prices for
+ * @param prices - array of new prices corresponding to the asset addresses
+ * @param opts - send and wait options
+ * @returns receipt upon tx confirmation
+ */
 export async function updateOraclePrice(
     from: AztecAddress,
     oracleContract: MockPriceFeedContract,
@@ -30,4 +40,21 @@ export async function updateOraclePrice(
             .send(opts.send)
             .wait(opts.wait);
     }
+}
+
+/**
+ * Get the currently reported price of an asset from the oracle
+ * 
+ * @param from - caller address
+ * @param oracleContract - the price oracle contract
+ * @param assetAddress - the asset to get the price for
+ * @returns - the current price of the asset
+ */
+export async function getPrice(
+    from: AztecAddress,
+    oracleContract: MockPriceFeedContract,
+    assetAddress: AztecAddress
+): Promise<bigint> {
+    const priceResult = await oracleContract.methods.get_price(assetAddress).simulate({ from });
+    return priceResult;
 }

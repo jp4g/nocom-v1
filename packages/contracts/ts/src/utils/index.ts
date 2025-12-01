@@ -5,6 +5,7 @@ import type { TestWallet } from "@aztec/test-wallet/server";
 import { CheatCodes } from "@aztec/aztec/testing";
 import type { TokenContract } from '../artifacts';
 
+export * as math from "./math";
 
 export function precision(n: bigint = 1n, decimals: bigint = 18n): bigint {
     return n * 10n ** decimals;
