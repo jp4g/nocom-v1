@@ -1,10 +1,16 @@
 'use client';
 
+import { useState } from 'react';
 import { Layers } from 'lucide-react';
-import { useWallet } from '@/contexts/WalletContext';
+import { useWallet } from '@/hooks/useWallet';
+import WalletModal from '@/components/wallet/WalletModal';
 
 export default function MarketsNav() {
-  const { isConnected, address, toggleConnection } = useWallet();
+  const { status, activeAccount } = useWallet();
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+
+  const isConnected = status === 'connected';
+  const isConnecting = status === 'connecting';
 
   return (
     <nav className="fixed top-0 w-full z-50 glass-header h-16">
@@ -26,7 +32,7 @@ export default function MarketsNav() {
 
         {/* Connect Button */}
         <button
-          onClick={toggleConnection}
+          onClick={() => setIsWalletModalOpen(true)}
           className={`group relative px-4 py-2 rounded-md bg-surface border transition-all duration-300 ${
             isConnected
               ? 'border-brand-purple/50 bg-brand-purple/10 hover:bg-brand-purple/20'
@@ -35,13 +41,18 @@ export default function MarketsNav() {
         >
           <div className="flex items-center gap-2">
             <div className={`w-2 h-2 rounded-full transition-colors ${
-              isConnected ? 'bg-green-500' : 'bg-text-muted group-hover:bg-brand-purple'
+              isConnected ? 'bg-green-500' : isConnecting ? 'bg-yellow-500 animate-pulse' : 'bg-text-muted group-hover:bg-brand-purple'
             }`}></div>
-            <span className={`text-sm font-medium text-white ${isConnected ? 'font-mono' : ''}`}>
-              {isConnected ? address : 'Connect Wallet'}
+            <span className={`text-sm font-medium text-white ${isConnected || isConnecting ? 'font-mono' : ''}`}>
+              {isConnecting ? 'Connecting...' : isConnected && activeAccount ? `${activeAccount.label} · ${activeAccount.address.slice(0, 6)}…${activeAccount.address.slice(-4)}` : 'Connect Wallet'}
             </span>
           </div>
         </button>
+
+        <WalletModal
+          open={isWalletModalOpen}
+          onClose={() => setIsWalletModalOpen(false)}
+        />
       </div>
     </nav>
   );

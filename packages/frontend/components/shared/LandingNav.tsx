@@ -5,7 +5,8 @@ import { Ghost } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 
 export default function LandingNav() {
-  const { isConnected, toggleConnection } = useWallet();
+  const { status, connect, disconnect } = useWallet();
+  const isConnected = status === 'connected';
 
   return (
     <nav className="fixed top-0 w-full z-50 border-b border-white/5 bg-dark/80 backdrop-blur-md">
