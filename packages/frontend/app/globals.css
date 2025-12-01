@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    font-feature-settings: "ss01", "cv01";
+  }
+}
+
+/* Selection */
+::selection {
+  background: rgba(129, 140, 248, 0.2);
+  color: white;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0B0B0E;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #444;
+}
+
+/* Background Grid Pattern */
+.bg-grid-pattern {
+  background-size: 60px 60px;
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+}
+
+/* Toggle Switch */
+.toggle-checkbox:checked {
+  right: 0;
+  border-color: #818CF8;
+}
+
+.toggle-checkbox:checked + .toggle-label {
+  background-color: #818CF8;
+}
+
+/* Glass Panel */
+.glass-panel {
+  background: rgba(21, 21, 25, 0.6);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Glass Header (for markets page) */
+.glass-header {
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+}
+
+/* Abstract Ghost Glow */
+.ghost-orb {
+  background: radial-gradient(circle at center, rgba(129, 140, 248, 0.15) 0%, rgba(129, 140, 248, 0.05) 40%, transparent 70%);
+}
+
+/* Token Icon */
+.token-icon {
+  box-shadow: 0 0 0 1px #333;
+}
