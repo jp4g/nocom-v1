@@ -56,7 +56,7 @@ export class EmbeddedWallet extends BaseWallet {
 
     const config = getPXEConfig();
     config.dataDirectory = `pxe-${rollupAddress}`;
-    config.proverEnabled = true;
+    config.proverEnabled = false;
     const configWithContracts = {
       ...config,
       l1Contracts,
