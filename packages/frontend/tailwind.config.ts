@@ -16,11 +16,13 @@ const config: Config = {
         surface: {
           DEFAULT: '#111111',
           hover: '#1A1A1A',
-          border: '#333333'
+          border: '#333333',
+          card: '#0A0A0A'
         },
         text: {
           main: '#FFFFFF',
-          muted: '#A1A1AA'
+          muted: '#A1A1AA',
+          dim: '#666666'
         }
       },
       fontFamily: {
