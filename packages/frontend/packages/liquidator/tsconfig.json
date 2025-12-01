@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "lib": ["ESNext"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "composite": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["bun-types"],
+    "paths": {
+      "@liquidator/shared": ["./shared/src"],
+      "@liquidator/shared/*": ["./shared/src/*"]
+    }
+  },
+  "include": ["services/**/*", "shared/**/*"],
+  "exclude": ["node_modules", "dist", "**/dist"]
+}

@@ -1,0 +1,116 @@
+version: '3.8'
+
+services:
+  # Price Service - Public API for price tracking and updates
+  price-service:
+    build:
+      context: ./services/price-service
+      dockerfile: Dockerfile
+    container_name: liquidator-price-service
+    ports:
+      - "3000:3000"  # Expose to external network for public API access
+    environment:
+      # CoinMarketCap API Configuration
+      - CMC_API_KEY=${CMC_API_KEY:-mock_api_key}
+
+      # Price monitoring configuration
+      - PRICE_UPDATE_INTERVAL=${PRICE_UPDATE_INTERVAL:-60000}
+      - PRICE_CHANGE_THRESHOLD=${PRICE_CHANGE_THRESHOLD:-0.5}
+      - MAX_UPDATE_INTERVAL=${MAX_UPDATE_INTERVAL:-1800000}
+      - MAX_TRACKED_ASSETS=${MAX_TRACKED_ASSETS:-50}
+
+      # Oracle contract configuration (mocked)
+      - ORACLE_CONTRACT_ADDRESS=${ORACLE_CONTRACT_ADDRESS:-0x0000000000000000000000000000000000000000}
+
+      # Internal service URLs
+      - LIQUIDATION_ENGINE_URL=http://liquidation-engine:3002
+      - LIQUIDATION_API_KEY=${LIQUIDATION_API_KEY:-default_api_key_change_me}
+
+      # API configuration
+      - PRICE_SERVICE_API_PORT=3000
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - liquidator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Note Monitor Service - Internal service for position tracking
+  note-monitor:
+    build:
+      context: ./services/note-monitor
+      dockerfile: Dockerfile
+    container_name: liquidator-note-monitor
+    ports:
+      - "3001:3001"  # Internal API, not exposed to external network in production
+    environment:
+      # PXE connection configuration
+      - NOTE_MONITOR_PXE_URL=${NOTE_MONITOR_PXE_URL:-http://localhost:8080}
+
+      # Sync configuration
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-60000}
+
+      # API configuration
+      - NOTE_MONITOR_API_PORT=3001
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - liquidator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Liquidation Engine - Internal service for executing liquidations
+  liquidation-engine:
+    build:
+      context: ./services/liquidation-engine
+      dockerfile: Dockerfile
+    container_name: liquidator-liquidation-engine
+    ports:
+      - "3002:3002"  # Internal API, not exposed to external network in production
+    environment:
+      # PXE connection configuration
+      - LIQUIDATION_ENGINE_PXE_URL=${LIQUIDATION_ENGINE_PXE_URL:-http://localhost:8080}
+
+      # Internal service URLs
+      - PRICE_SERVICE_URL=http://price-service:3000
+      - NOTE_MONITOR_URL=http://note-monitor:3001
+
+      # Authentication
+      - LIQUIDATION_API_KEY=${LIQUIDATION_API_KEY:-default_api_key_change_me}
+
+      # Liquidator wallet configuration
+      - LIQUIDATOR_PRIVATE_KEY=${LIQUIDATOR_PRIVATE_KEY:-mock_private_key}
+
+      # API configuration
+      - LIQUIDATION_ENGINE_API_PORT=3002
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - liquidator-network
+    restart: unless-stopped
+    depends_on:
+      - price-service
+      - note-monitor
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  liquidator-network:
+    driver: bridge
+    name: liquidator-network
+
+# Volume configuration (optional, for future persistence needs)
+# volumes:
+#   price-data:
+#   position-data:
