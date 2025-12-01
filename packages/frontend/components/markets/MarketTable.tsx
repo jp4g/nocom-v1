@@ -3,6 +3,7 @@
 import { MARKET_DATA } from '@/lib/mockData';
 import { formatCurrency, getAssetColor } from '@/lib/utils';
 import { ArrowDown } from 'lucide-react';
+import Image from 'next/image';
 
 function handleAction(action: string, asset: string) {
   console.log(`${action} clicked for ${asset}`);
@@ -34,11 +35,23 @@ export default function MarketTable() {
                 <td className="py-4 px-6">
                   <div className="flex items-center gap-3">
                     <div className="relative flex -space-x-2">
-                      <div className={`w-8 h-8 rounded-full ${getAssetColor(market.loanAsset)} flex items-center justify-center text-[10px] font-bold text-black border-2 border-surface z-10`}>
-                        {market.loanAsset[0]}
+                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
+                        <Image
+                          src={`/icons/${market.loanAsset.toLowerCase()}.svg`}
+                          alt={market.loanAsset}
+                          width={32}
+                          height={32}
+                          className="w-full h-full object-contain"
+                        />
                       </div>
-                      <div className={`w-8 h-8 rounded-full ${getAssetColor(market.collateralAsset)} flex items-center justify-center text-[10px] font-bold text-black border-2 border-surface z-0 opacity-80`}>
-                        {market.collateralAsset[0]}
+                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
+                        <Image
+                          src={`/icons/${market.collateralAsset.toLowerCase()}.svg`}
+                          alt={market.collateralAsset}
+                          width={32}
+                          height={32}
+                          className="w-full h-full object-contain"
+                        />
                       </div>
                     </div>
                     <div>
