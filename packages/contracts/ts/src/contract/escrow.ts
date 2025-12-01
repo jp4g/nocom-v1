@@ -43,7 +43,7 @@ export async function depositCollateral(
     from: AztecAddress,
     escrowContract: NocomEscrowV1Contract,
     poolAddress: AztecAddress,
-    tokenContract: TokenContract,
+    collateralTokenContract: TokenContract,
     amount: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } },
 ): Promise<TxReceipt> {
@@ -51,7 +51,7 @@ export async function depositCollateral(
     const { authwit, nonce } = await privateToPublicTransferAuthwit(
         wallet,
         from,
-        tokenContract,
+        collateralTokenContract,
         poolAddress,
         poolAddress,
         amount,

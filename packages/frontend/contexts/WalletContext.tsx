@@ -20,6 +20,7 @@ import type {
   NocomLendingPoolV1Contract,
   TokenContract,
 } from '@nocom-v1/contracts/artifacts'
+import { NocomPublicContracts } from '@/lib/types'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -33,14 +34,6 @@ type WalletHandle =
   | { type: 'embedded'; instance: EmbeddedWallet }
   | { type: 'extension'; instance: Wallet }
 
-export type Contracts = {
-  usdc: TokenContract
-  zcash: TokenContract
-  oracle: MockPriceFeedContract
-  zecDebtPool: NocomLendingPoolV1Contract
-  usdcDebtPool: NocomLendingPoolV1Contract
-}
-
 export type WalletContextValue = {
   status: WalletStatus
   providerType?: WalletProviderType
@@ -48,7 +41,7 @@ export type WalletContextValue = {
   activeAccount?: WalletAccount
   wallet?: WalletHandle
   node?: AztecNode
-  contracts?: Contracts
+  contracts?: NocomPublicContracts
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
   setActiveAccount: (address: string) => void
@@ -107,7 +100,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const [accounts, setAccounts] = useState<WalletAccount[]>([])
   const [node, setNode] = useState<AztecNode | undefined>(undefined)
   const [activeAccountState, setActiveAccountState] = useState<WalletAccount | undefined>(undefined)
-  const [contracts, setContracts] = useState<Contracts | undefined>(undefined)
+  const [contracts, setContracts] = useState<NocomPublicContracts | undefined>(undefined)
 
   const walletHandleRef = useRef<WalletHandle | undefined>(undefined)
   const activeAccountRef = useRef<WalletAccount | undefined>(undefined)

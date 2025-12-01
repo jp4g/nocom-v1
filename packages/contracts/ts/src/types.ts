@@ -13,3 +13,8 @@ export type LiquidationResult = {
   liquidatorCollateralAmount: bigint;
   protocolFee: bigint;
 }
+
+export type UtilizationSimulationResult = {
+  total_supplied: bigint,
+  total_borrowed: bigint
+}

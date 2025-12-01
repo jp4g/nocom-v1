@@ -11,17 +11,12 @@ import {
     NocomLendingPoolV1ContractArtifact,
     TokenContractArtifact,
 } from "@nocom-v1/contracts/artifacts"
+import { NocomPublicContracts } from "../types";
 
 // todo: generalize this, this is disgusting
 export async function registerPublicContracts(
     wallet: BaseWallet,
-): Promise<{
-    usdc: TokenContract,
-    zcash: TokenContract,
-    oracle: MockPriceFeedContract,
-    zecDebtPool: NocomLendingPoolV1Contract,
-    usdcDebtPool: NocomLendingPoolV1Contract,
-}> {
+): Promise<NocomPublicContracts> {
     console.log("tryna get address book");
     const addressBook = await wallet.getAddressBook();
     console.log("got address book");
@@ -87,10 +82,14 @@ export async function registerPublicContracts(
     // return contracts
     console.log("successfully got contracts");
     return {
-        usdc: await TokenContract.at(usdcAddress, wallet),
-        zcash: await TokenContract.at(zecAddress, wallet),
         oracle: await MockPriceFeedContract.at(oracleAddress, wallet),
-        zecDebtPool: await NocomLendingPoolV1Contract.at(zecDebtPoolAddress, wallet),
-        usdcDebtPool: await NocomLendingPoolV1Contract.at(usdcDebtPoolAddress, wallet),
+        tokens: {
+            usdc: await TokenContract.at(usdcAddress, wallet),
+            zec: await TokenContract.at(zecAddress, wallet),
+        },
+        pools: {
+            zecToUsdc: await NocomLendingPoolV1Contract.at(usdcDebtPoolAddress, wallet),
+            usdcToZec: await NocomLendingPoolV1Contract.at(zecDebtPoolAddress, wallet),
+        },
     };
 }

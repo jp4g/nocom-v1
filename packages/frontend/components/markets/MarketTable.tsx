@@ -1,15 +1,42 @@
 'use client';
 
 import { MARKET_DATA } from '@/lib/mockData';
-import { formatCurrency, getAssetColor } from '@/lib/utils';
-import { ArrowDown } from 'lucide-react';
+import { formatCurrency } from '@/lib/utils';
+import { ArrowDown, Loader2 } from 'lucide-react';
 import Image from 'next/image';
+import { useMarketData, MarketWithContract } from '@/hooks/useMarketData';
+import { useWallet } from '@/hooks/useWallet';
+import { useMemo } from 'react';
 
 function handleAction(action: string, asset: string) {
   console.log(`${action} clicked for ${asset}`);
 }
 
+function calculateUtilization(supplied: bigint, borrowed: bigint): number {
+  if (supplied === 0n) return 0;
+  return Number((borrowed * 100n) / supplied);
+}
+
 export default function MarketTable() {
+  const { contracts, wallet, address } = useWallet();
+
+  // Build market configs with contract instances
+  const marketConfigs: MarketWithContract[] = useMemo(() => {
+    if (!contracts) return [];
+
+    return [
+      {
+        ...MARKET_DATA[0],
+        contract: contracts.pools.usdcToZec,
+      },
+      {
+        ...MARKET_DATA[1],
+        contract: contracts.pools.zecToUsdc,
+      }
+    ];
+  }, [contracts]);
+
+  const { markets } = useMarketData(marketConfigs, wallet, address);
   return (
     <>
       <div className="w-full overflow-x-auto rounded-xl border border-surface-border bg-surface">
@@ -30,76 +57,109 @@ export default function MarketTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border text-sm">
-            {MARKET_DATA.map((market) => (
-              <tr key={market.id} className="group hover:bg-surface-hover/50 transition-colors border-b border-surface-border last:border-0">
-                <td className="py-4 px-6">
-                  <div className="flex items-center gap-3">
-                    <div className="relative flex -space-x-2">
-                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
-                        <Image
-                          src={`/icons/${market.loanAsset.toLowerCase()}.svg`}
-                          alt={market.loanAsset}
-                          width={32}
-                          height={32}
-                          className="w-full h-full object-contain"
-                        />
+            {MARKET_DATA.map((market) => {
+              const marketData = markets.get(market.poolAddress);
+              const utilization = marketData?.status === 'loaded' && marketData.data
+                ? calculateUtilization(marketData.data.totalSupplied, marketData.data.totalBorrowed)
+                : 0;
+
+              return (
+                <tr key={market.id} className="group hover:bg-surface-hover/50 transition-colors border-b border-surface-border last:border-0">
+                  <td className="py-4 px-6">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex -space-x-2">
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
+                          <Image
+                            src={`/icons/${market.loanAsset.toLowerCase()}.svg`}
+                            alt={market.loanAsset}
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
+                          <Image
+                            src={`/icons/${market.collateralAsset.toLowerCase()}.svg`}
+                            alt={market.collateralAsset}
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                       </div>
-                      <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
-                        <Image
-                          src={`/icons/${market.collateralAsset.toLowerCase()}.svg`}
-                          alt={market.collateralAsset}
-                          width={32}
-                          height={32}
-                          className="w-full h-full object-contain"
-                        />
+                      <div>
+                        <div className="font-medium text-white">{market.loanAsset} / {market.collateralAsset}</div>
+                        <div className="text-xs text-text-muted font-mono">Isolated</div>
                       </div>
                     </div>
-                    <div>
-                      <div className="font-medium text-white">{market.loanAsset} / {market.collateralAsset}</div>
-                      <div className="text-xs text-text-muted font-mono">Isolated</div>
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
+                      {market.supplyApy.toFixed(2)}%
+                    </span>
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <span className="font-mono text-text-muted font-medium">{market.borrowApy.toFixed(2)}%</span>
+                  </td>
+                  <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
+                    {marketData?.status === 'loading' && (
+                      <Loader2 className="w-4 h-4 animate-spin inline-block" />
+                    )}
+                    {marketData?.status === 'loaded' && marketData.data && (
+                      formatCurrency(Number(marketData.data.totalSupplied))
+                    )}
+                    {marketData?.status === 'error' && (
+                      <span className="text-red-400">Error</span>
+                    )}
+                  </td>
+                  <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
+                    {marketData?.status === 'loading' && (
+                      <Loader2 className="w-4 h-4 animate-spin inline-block" />
+                    )}
+                    {marketData?.status === 'loaded' && marketData.data && (
+                      formatCurrency(Number(marketData.data.totalBorrowed))
+                    )}
+                    {marketData?.status === 'error' && (
+                      <span className="text-red-400">Error</span>
+                    )}
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <div className="flex flex-col items-end gap-1">
+                      {marketData?.status === 'loading' && (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      )}
+                      {marketData?.status === 'loaded' && (
+                        <>
+                          <span className="text-xs font-mono text-text-muted">{utilization.toFixed(1)}%</span>
+                          <div className="w-24 h-1.5 bg-surface-border rounded-full overflow-hidden">
+                            <div className="h-full bg-brand-purple rounded-full" style={{ width: `${utilization}%` }}></div>
+                          </div>
+                        </>
+                      )}
+                      {marketData?.status === 'error' && (
+                        <span className="text-red-400 text-xs">Error</span>
+                      )}
                     </div>
-                  </div>
-                </td>
-                <td className="py-4 px-6 text-right">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
-                    {market.supplyApy.toFixed(2)}%
-                  </span>
-                </td>
-                <td className="py-4 px-6 text-right">
-                  <span className="font-mono text-text-muted font-medium">{market.borrowApy.toFixed(2)}%</span>
-                </td>
-                <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
-                  {formatCurrency(market.totalSupply)}
-                </td>
-                <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
-                  {formatCurrency(market.totalBorrow)}
-                </td>
-                <td className="py-4 px-6 text-right">
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="text-xs font-mono text-text-muted">{market.utilization.toFixed(1)}%</span>
-                    <div className="w-24 h-1.5 bg-surface-border rounded-full overflow-hidden">
-                      <div className="h-full bg-brand-purple rounded-full" style={{ width: `${market.utilization}%` }}></div>
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleAction('Supply', market.loanAsset)}
+                        className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
+                      >
+                        Supply
+                      </button>
+                      <button
+                        onClick={() => handleAction('Borrow', market.loanAsset)}
+                        className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
+                      >
+                        Borrow
+                      </button>
                     </div>
-                  </div>
-                </td>
-                <td className="py-4 px-6 text-right">
-                  <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => handleAction('Supply', market.loanAsset)}
-                      className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
-                    >
-                      Supply
-                    </button>
-                    <button
-                      onClick={() => handleAction('Borrow', market.loanAsset)}
-                      className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
-                    >
-                      Borrow
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
