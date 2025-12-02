@@ -7,12 +7,10 @@ import Image from 'next/image';
 import { useMarketData, MarketWithContract } from '@/hooks/useMarketData';
 import { usePriceOracle } from '@/hooks/usePriceOracle';
 import { useWallet } from '@/hooks/useWallet';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
-
-function handleAction(action: string, asset: string) {
-  console.log(`${action} clicked for ${asset}`);
-}
+import SupplyModal from './SupplyModal';
+import BorrowModal from './BorrowModal';
 
 function calculateUtilization(supplied: bigint, borrowed: bigint): number {
   if (supplied === 0n) return 0;
@@ -34,6 +32,9 @@ function tokenAmountToUSD(amount: bigint, price: bigint | undefined): number {
 
 export default function MarketTable() {
   const { contracts, wallet: walletHandle, activeAccount } = useWallet();
+  const [supplyModalOpen, setSupplyModalOpen] = useState(false);
+  const [borrowModalOpen, setBorrowModalOpen] = useState(false);
+  const [selectedMarket, setSelectedMarket] = useState<MarketWithContract | null>(null);
 
   // Extract wallet instance and address
   const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
@@ -115,6 +116,38 @@ export default function MarketTable() {
     USDC: prices.get(tokenPrices[0]?.address.toString())?.price?.toString(),
     ZEC: prices.get(tokenPrices[1]?.address.toString())?.price?.toString(),
   });
+
+  const handleSupplyClick = (market: MarketWithContract) => {
+    setSelectedMarket(market);
+    setSupplyModalOpen(true);
+  };
+
+  const handleBorrowClick = (market: MarketWithContract) => {
+    setSelectedMarket(market);
+    setBorrowModalOpen(true);
+  };
+
+  const handleSupply = async (amount: bigint) => {
+    // Mock supply function - replace with actual contract call
+    console.log('Supplying amount:', amount.toString());
+
+    // Simulate async operation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // TODO: Call actual contract method
+    // await selectedMarket.contract.methods.supply(amount).send();
+  };
+
+  const handleBorrow = async (amount: bigint) => {
+    // Mock borrow function - replace with actual contract call
+    console.log('Borrowing amount:', amount.toString());
+
+    // Simulate async operation
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // TODO: Call actual contract method
+    // await selectedMarket.contract.methods.borrow(amount).send();
+  };
 
   return (
     <>
@@ -250,13 +283,13 @@ export default function MarketTable() {
                   <td className="py-4 px-6 text-right">
                     <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => handleAction('Supply', market.loanAsset)}
+                        onClick={() => handleSupplyClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
                       >
                         Supply
                       </button>
                       <button
-                        onClick={() => handleAction('Borrow', market.loanAsset)}
+                        onClick={() => handleBorrowClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
                       >
                         Borrow
@@ -282,6 +315,26 @@ export default function MarketTable() {
           </button>
         </div>
       </div>
+
+      {/* Modals */}
+      {selectedMarket && (
+        <>
+          <SupplyModal
+            open={supplyModalOpen}
+            onClose={() => setSupplyModalOpen(false)}
+            debtTokenName={selectedMarket.loanAsset}
+            availableBalance={1000000000000000000n} // Mock: 1.0 token
+            onSupply={handleSupply}
+          />
+          <BorrowModal
+            open={borrowModalOpen}
+            onClose={() => setBorrowModalOpen(false)}
+            debtTokenName={selectedMarket.loanAsset}
+            availableToBorrow={500000000000000000n} // Mock: 0.5 token
+            onBorrow={handleBorrow}
+          />
+        </>
+      )}
     </>
   );
 }
