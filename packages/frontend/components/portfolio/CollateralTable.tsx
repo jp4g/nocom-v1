@@ -2,12 +2,12 @@
 
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
-import { LoanPosition, PortfolioState } from '@/hooks/usePortfolio';
+import { CollateralPosition, PortfolioState } from '@/hooks/usePortfolio';
 import { formatCurrency } from '@/lib/utils';
 
-interface SuppliesTableProps {
+interface CollateralTableProps {
   state: PortfolioState;
-  positions: LoanPosition[];
+  positions: CollateralPosition[];
   totalUSD: number;
 }
 
@@ -37,11 +37,11 @@ const getAssetColor = (symbol: string) => {
   return colors[symbol] || 'bg-gray-500';
 };
 
-export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTableProps) {
+export default function CollateralTable({ state, positions, totalUSD }: CollateralTableProps) {
   return (
     <section className="bg-surface rounded-xl border border-surface-border flex flex-col overflow-hidden h-full">
       <div className="p-5 border-b border-surface-border flex justify-between items-center bg-surface-card">
-        <h2 className="text-lg font-medium tracking-tight">Your Loans</h2>
+        <h2 className="text-lg font-medium tracking-tight">Your Collateral</h2>
         <span className="text-xs font-mono text-text-muted">
           {state.status === 'loading' ? (
             <Loader2 className="w-4 h-4 animate-spin inline-block" />
@@ -58,7 +58,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
               <th className="py-3 px-5 font-medium">Asset</th>
               <th className="py-3 px-5 font-medium">Debt Market</th>
               <th className="py-3 px-5 font-medium text-right">Balance</th>
-              <th className="py-3 px-5 font-medium text-right">APY</th>
+              <th className="py-3 px-5 font-medium text-right">Collateral Factor</th>
               <th className="py-3 px-5 font-medium text-right">Manage</th>
             </tr>
           </thead>
@@ -116,7 +116,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
                   </td>
                   <td className="py-4 px-5 text-right">
                     <span className="inline-flex items-center text-xs font-mono font-medium text-green-400">
-                      {item.apy.toFixed(2)}%
+                      {(item.collateralFactor * 100).toFixed(0)}%
                     </span>
                   </td>
                   <td className="py-4 px-5 text-right">
@@ -133,7 +133,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
         </table>
       </div>
 
-      {/* Empty State (Hidden when there are loans) */}
+      {/* Empty State (Hidden when there is collateral) */}
       {state.status !== 'loading' && positions.length === 0 && (
         <div className="py-12 flex flex-col items-center justify-center text-center">
           <div className="w-12 h-12 rounded-full bg-surface-border flex items-center justify-center mb-3">
@@ -141,7 +141,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
           </div>
-          <p className="text-text-muted text-sm">No loans yet</p>
+          <p className="text-text-muted text-sm">No collateral yet</p>
         </div>
       )}
     </section>
