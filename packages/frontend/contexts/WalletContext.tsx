@@ -19,6 +19,8 @@ import { registerPublicContracts } from '@/lib/contract'
 import { NocomPublicContracts } from '@/lib/types'
 import { NocomEscrowV1Contract, NocomEscrowV1ContractArtifact } from '@nocom-v1/contracts/artifacts'
 import { ContractInstanceWithAddressSchema } from '@aztec/stdlib/contract'
+import { simulationQueue } from '@/lib/utils/simulationQueue'
+import { getEscrowMappings } from '@/lib/storage/escrowStorage'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -44,7 +46,7 @@ export type WalletContextValue = {
   registerEscrow: (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => Promise<NocomEscrowV1Contract>
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
-  setActiveAccount: (address: string) => void
+  setActiveAccount: (address: string) => Promise<void>
   refreshAccounts: () => Promise<WalletAccount[]>
 }
 
@@ -111,6 +113,58 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setActiveAccountState(account)
   }, [])
 
+  // Load all escrows from local storage for the current user
+  const loadEscrowsFromStorage = useCallback(async (userAddress: string) => {
+    const handle = walletHandleRef.current
+    if (!handle || handle.type !== 'embedded') {
+      console.log('[WalletContext] Skipping escrow load - not embedded wallet')
+      return
+    }
+
+    const escrowMappings = getEscrowMappings(userAddress)
+    const debtPoolAddresses = Object.keys(escrowMappings)
+
+    if (debtPoolAddresses.length === 0) {
+      console.log('[WalletContext] No escrows found in storage for user:', userAddress)
+      return
+    }
+
+    console.log('[WalletContext] Loading', debtPoolAddresses.length, 'escrows from storage for user:', userAddress)
+
+    const loadedEscrows = new Map<string, NocomEscrowV1Contract>()
+
+    for (const debtPoolAddress of debtPoolAddresses) {
+      const escrowData = escrowMappings[debtPoolAddress]
+      try {
+        console.log('[WalletContext] Loading escrow for pool:', debtPoolAddress)
+
+        const escrowAztecAddress = AztecAddress.fromString(escrowData.escrowAddress)
+        const secretKeyFr = Fr.fromString(escrowData.secretKey)
+        const escrowContractInstance = ContractInstanceWithAddressSchema.parse(
+          JSON.parse(escrowData.instance)
+        )
+
+        // Use simulation queue to prevent IndexedDB transaction conflicts
+        const escrowContract = await simulationQueue.enqueue(async () => {
+          await handle.instance.registerContract(escrowContractInstance, NocomEscrowV1ContractArtifact, secretKeyFr)
+          await handle.instance.registerSender(escrowAztecAddress)
+          return await NocomEscrowV1Contract.at(escrowAztecAddress, handle.instance)
+        })
+
+        loadedEscrows.set(debtPoolAddress, escrowContract)
+        console.log('[WalletContext] Successfully loaded escrow for pool:', debtPoolAddress)
+      } catch (error) {
+        console.error('[WalletContext] Failed to load escrow for pool:', debtPoolAddress, error)
+        // Continue loading other escrows even if one fails
+      }
+    }
+
+    if (loadedEscrows.size > 0) {
+      setEscrowContracts(loadedEscrows)
+      console.log('[WalletContext] Loaded', loadedEscrows.size, 'escrows from storage')
+    }
+  }, [])
+
   const registerEscrow = useCallback(async (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => {
     const handle = walletHandleRef.current
     if (!handle || handle.type !== 'embedded') {
@@ -128,19 +182,22 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
         JSON.parse(instanceString)
       )
 
-      // Register the contract with its secret key so the PXE can decrypt notes
-      await handle.instance.registerContract(escrowContractInstance, NocomEscrowV1ContractArtifact, secretKeyFr)
-      console.log('[WalletContext] Escrow contract registered with PXE')
+      // Use simulation queue to prevent IndexedDB transaction conflicts
+      const escrowContract = await simulationQueue.enqueue(async () => {
+        // Register the contract with its secret key so the PXE can decrypt notes
+        await handle.instance.registerContract(escrowContractInstance, NocomEscrowV1ContractArtifact, secretKeyFr)
+        console.log('[WalletContext] Escrow contract registered with PXE')
 
-      // Register as sender
-      await handle.instance.registerSender(escrowAztecAddress)
-      console.log('[WalletContext] Escrow registered as sender')
+        // Register as sender
+        await handle.instance.registerSender(escrowAztecAddress)
+        console.log('[WalletContext] Escrow registered as sender')
 
-      // Now initialize the contract interface
-      const escrowContract = await NocomEscrowV1Contract.at(
-        escrowAztecAddress,
-        handle.instance
-      )
+        // Now initialize the contract interface
+        return await NocomEscrowV1Contract.at(
+          escrowAztecAddress,
+          handle.instance
+        )
+      })
 
       setEscrowContracts(prev => {
         const updated = new Map(prev)
@@ -240,7 +297,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   )
 
   const setActiveAccount = useCallback(
-    (address: string) => {
+    async (address: string) => {
       const current = activeAccountRef.current
       if (current?.address === address) {
         return
@@ -250,9 +307,11 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
         setActiveAccountInternal(nextAccount)
         // Clear escrow cache when switching accounts since escrows are per-user
         setEscrowContracts(new Map())
+        // Load escrows for the new account
+        await loadEscrowsFromStorage(nextAccount.address)
       }
     },
-    [accounts, setActiveAccountInternal],
+    [accounts, setActiveAccountInternal, loadEscrowsFromStorage],
   )
 
   // Background initialization of sender connections after wallet connects
@@ -265,6 +324,13 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
           const initializedContracts = await registerPublicContracts(wallet);
           setContracts(initializedContracts)
           console.log("Registered all contracts in address book")
+
+          // Load escrows from storage for the active account
+          const currentAccount = activeAccountRef.current
+          if (currentAccount) {
+            console.log('[WalletContext] Loading escrows for account:', currentAccount.address)
+            await loadEscrowsFromStorage(currentAccount.address)
+          }
         } catch (error) {
           console.error('Failed to initialize senders:', error)
         }
@@ -272,7 +338,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
 
     initializeSenders()
-  }, [status])
+  }, [status, loadEscrowsFromStorage])
 
   const value = useMemo<WalletContextValue>(
     () => ({

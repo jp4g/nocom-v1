@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
-import { LoanPosition, PortfolioState } from '@/contexts/DataContext';
+import { LoanPosition, PortfolioState, useDataContext } from '@/contexts/DataContext';
 import { formatCurrency } from '@/lib/utils';
+import WithdrawModal from './WithdrawModal';
 
 interface SuppliesTableProps {
   state: PortfolioState;
@@ -38,7 +40,33 @@ const getAssetColor = (symbol: string) => {
 };
 
 export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTableProps) {
+  const { markets } = useDataContext();
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [selectedPosition, setSelectedPosition] = useState<LoanPosition | null>(null);
+
+  const handleWithdrawClick = (position: LoanPosition) => {
+    setSelectedPosition(position);
+    setWithdrawModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setWithdrawModalOpen(false);
+    setSelectedPosition(null);
+  };
+
+  // Get market data for the selected position's pool
+  const selectedMarketData = selectedPosition
+    ? markets.get(selectedPosition.poolAddress)
+    : undefined;
+
   return (
+    <>
+      <WithdrawModal
+        open={withdrawModalOpen}
+        onClose={handleCloseModal}
+        loanPosition={selectedPosition}
+        marketData={selectedMarketData?.status === 'loaded' ? selectedMarketData.data : undefined}
+      />
     <section className="bg-surface rounded-xl border border-surface-border flex flex-col overflow-hidden h-full">
       <div className="p-5 border-b border-surface-border flex justify-between items-center bg-surface-card">
         <h2 className="text-lg font-medium tracking-tight">Your Loans</h2>
@@ -121,7 +149,10 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
                   </td>
                   <td className="py-4 px-5 text-right">
                     <div className="flex justify-end gap-2">
-                      <button className="px-3 py-1.5 text-xs font-medium bg-surface border border-surface-border hover:bg-surface-hover hover:text-white text-text-muted rounded transition-colors">
+                      <button
+                        onClick={() => handleWithdrawClick(item)}
+                        className="px-3 py-1.5 text-xs font-medium bg-surface border border-surface-border hover:bg-surface-hover hover:text-white text-text-muted rounded transition-colors"
+                      >
                         Withdraw
                       </button>
                     </div>
@@ -145,5 +176,6 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
         </div>
       )}
     </section>
+    </>
   );
 }
