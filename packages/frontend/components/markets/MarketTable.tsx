@@ -105,10 +105,12 @@ export default function MarketTable() {
   const { prices } = usePriceOracle(
     tokenPrices,
     contracts?.oracle,
+    // @ts-ignore
     wallet,
     address
   );
 
+  // @ts-ignore
   const { markets } = useMarketData(marketConfigs, wallet, address);
 
   // Log prices when they load
@@ -317,13 +319,19 @@ export default function MarketTable() {
       </div>
 
       {/* Modals */}
-      {selectedMarket && (
+      {selectedMarket && contracts && (
         <>
           <SupplyModal
             open={supplyModalOpen}
             onClose={() => setSupplyModalOpen(false)}
             debtTokenName={selectedMarket.loanAsset}
-            availableBalance={1000000000000000000n} // Mock: 1.0 token
+            tokenContract={
+              selectedMarket.loanAsset === 'USDC'
+                ? contracts.tokens.usdc
+                : contracts.tokens.zec
+            }
+            wallet={wallet}
+            userAddress={address}
             onSupply={handleSupply}
           />
           <BorrowModal

@@ -157,6 +157,7 @@ async function main() {
             .send(sendOpts).wait();
         await zcash.methods.mint_to_private(bobAddress, populationZcashAmount)
             .send(sendOpts).wait();
+        console.log("just minted a fuck ton of tokens to ", bobAddress.toString())
 
         // 10c. supply liquidity from the lender account
         console.log("Supplying liquidity to pools from lender account...");

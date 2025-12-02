@@ -46,7 +46,7 @@ export interface UsePriceOracleReturn {
 export function usePriceOracle(
   tokens: TokenPrice[],
   oracleContract: MockPriceFeedContract | undefined,
-  wallet: BaseWallet | undefined,
+  wallet: EmbeddedWallet | BaseWallet | undefined,
   from: AztecAddress | undefined
 ): UsePriceOracleReturn {
   const [prices, setPrices] = useState<Map<string, PriceState>>(

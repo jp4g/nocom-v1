@@ -4,12 +4,18 @@ import { useEffect, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+import { BaseWallet } from '@aztec/aztec.js/wallet';
+import { TokenContract } from '@nocom-v1/contracts/artifacts';
+import { useSupplyInfo } from '@/hooks/useSupplyInfo';
 
 type SupplyModalProps = {
   open: boolean;
   onClose: () => void;
   debtTokenName: string;
-  availableBalance: bigint;
+  tokenContract: TokenContract;
+  wallet: BaseWallet | undefined;
+  userAddress: AztecAddress | undefined;
   onSupply: (amount: bigint) => Promise<void>;
 };
 
@@ -17,12 +23,21 @@ export default function SupplyModal({
   open,
   onClose,
   debtTokenName,
-  availableBalance,
+  tokenContract,
+  wallet,
+  userAddress,
   onSupply,
 }: SupplyModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // Fetch user's balance for this token
+  const { balance, isLoading: isBalanceLoading, error: balanceError } = useSupplyInfo(
+    tokenContract,
+    wallet,
+    userAddress
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -47,8 +62,9 @@ export default function SupplyModal({
   }, [open]);
 
   const formattedBalance = useMemo(() => {
-    return (Number(availableBalance) / 1e18).toFixed(6);
-  }, [availableBalance]);
+    if (!balance) return '0.000000';
+    return (Number(balance) / 1e18).toFixed(6);
+  }, [balance]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -66,12 +82,16 @@ export default function SupplyModal({
   };
 
   const isValidInput = useMemo(() => {
+    // Can't submit if balance hasn't loaded yet
+    if (isBalanceLoading || !balance) {
+      return false;
+    }
     if (!inputValue || inputValue === '0' || inputValue === '0.' || inputValue === '.') {
       return false;
     }
     const numValue = parseFloat(inputValue);
     return !isNaN(numValue) && numValue > 0;
-  }, [inputValue]);
+  }, [inputValue, isBalanceLoading, balance]);
 
   const handleSupply = async () => {
     if (!isValidInput) return;
@@ -156,9 +176,15 @@ export default function SupplyModal({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-text-muted">Available Balance</span>
-                  <span className="text-white font-mono">
-                    {formattedBalance} {debtTokenName}
-                  </span>
+                  {isBalanceLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-brand-purple" />
+                  ) : balanceError ? (
+                    <span className="text-red-400 text-xs">Error loading balance</span>
+                  ) : (
+                    <span className="text-white font-mono">
+                      {formattedBalance} {debtTokenName}
+                    </span>
+                  )}
                 </div>
               </div>
 
