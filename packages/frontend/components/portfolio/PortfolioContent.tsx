@@ -1,13 +1,13 @@
 'use client';
 
-import { usePortfolioContext } from '@/contexts/PortfolioContext';
+import { useDataContext } from '@/contexts/DataContext';
 import AccountOverview from './AccountOverview';
 import SuppliesTable from './SuppliesTable';
 import BorrowsTable from './BorrowsTable';
 import CollateralTable from './CollateralTable';
 
 export default function PortfolioContent() {
-  const { state, data } = usePortfolioContext();
+  const { portfolioState: state, portfolioData: data } = useDataContext();
 
   return (
     <>

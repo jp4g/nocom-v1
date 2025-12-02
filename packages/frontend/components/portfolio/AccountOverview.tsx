@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import { PortfolioState, LOAN_APY, DEBT_APY } from '@/hooks/usePortfolio';
+import { PortfolioState, LOAN_APY, DEBT_APY } from '@/contexts/DataContext';
 import { formatCurrency } from '@/lib/utils';
 
 interface AccountOverviewProps {
@@ -12,7 +12,8 @@ interface AccountOverviewProps {
   totalDebtUSD: number;
 }
 
-const getHealthColor = (hf: number) => {
+const getHealthColor = (hf: number, hasDebt: boolean) => {
+  if (!hasDebt) return 'text-white';
   if (hf < 1.1) return 'text-red-500';
   if (hf < 1.5) return 'text-yellow-500';
   return 'text-green-500';
@@ -79,8 +80,8 @@ export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, t
               {isLoading ? (
                 <Loader2 className="w-4 h-4 animate-spin text-text-muted" />
               ) : (
-                <span className={`text-lg font-mono ${getHealthColor(avgHealthFactor)}`}>
-                  {avgHealthFactor.toFixed(2)}
+                <span className={`text-lg font-mono ${getHealthColor(avgHealthFactor, totalDebtUSD > 0)}`}>
+                  {totalDebtUSD > 0 ? avgHealthFactor.toFixed(2) : '0'}
                 </span>
               )}
             </div>

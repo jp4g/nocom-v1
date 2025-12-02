@@ -1,7 +1,7 @@
 'use client';
 
 import { formatCurrency } from '@/lib/utils';
-import { useMarketDataContext } from '@/contexts/MarketDataContext';
+import { useDataContext } from '@/contexts/DataContext';
 import { useWallet } from '@/hooks/useWallet';
 import { Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -16,7 +16,7 @@ function tokenAmountToUSD(amount: bigint, price: bigint | undefined): number {
 
 export default function StatsBar() {
   const { contracts } = useWallet();
-  const { markets, prices, marketConfigs } = useMarketDataContext();
+  const { markets, prices, marketConfigs } = useDataContext();
 
   // Calculate USD aggregates manually
   const aggregatesUSD = useMemo(() => {

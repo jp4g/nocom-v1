@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
-import { LoanPosition, PortfolioState } from '@/hooks/usePortfolio';
+import { LoanPosition, PortfolioState } from '@/contexts/DataContext';
 import { formatCurrency } from '@/lib/utils';
 
 interface SuppliesTableProps {

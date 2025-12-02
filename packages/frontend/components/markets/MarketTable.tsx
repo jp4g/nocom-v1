@@ -3,7 +3,7 @@
 import { formatCurrency } from '@/lib/utils';
 import { ArrowDown, Loader2 } from 'lucide-react';
 import Image from 'next/image';
-import { useMarketDataContext, MarketWithContract } from '@/contexts/MarketDataContext';
+import { useDataContext, MarketWithContract } from '@/contexts/DataContext';
 import { useWallet } from '@/hooks/useWallet';
 import { useMemo, useState } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
@@ -26,7 +26,7 @@ function tokenAmountToUSD(amount: bigint, price: bigint | undefined): number {
 
 export default function MarketTable() {
   const { contracts, wallet: walletHandle, activeAccount } = useWallet();
-  const { markets, prices, marketConfigs } = useMarketDataContext();
+  const { markets, prices, marketConfigs } = useDataContext();
 
   const [supplyModalOpen, setSupplyModalOpen] = useState(false);
   const [borrowModalOpen, setBorrowModalOpen] = useState(false);

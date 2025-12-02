@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
-import { CollateralPosition, PortfolioState } from '@/hooks/usePortfolio';
+import { CollateralPosition, PortfolioState } from '@/contexts/DataContext';
 import { formatCurrency } from '@/lib/utils';
 
 interface CollateralTableProps {

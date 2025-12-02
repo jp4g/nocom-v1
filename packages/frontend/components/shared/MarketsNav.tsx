@@ -48,12 +48,6 @@ export default function MarketsNav() {
           >
             Portfolio
           </Link>
-          <Link
-            href="#"
-            className="text-sm font-medium text-text-muted hover:text-white transition-colors"
-          >
-            Governance
-          </Link>
         </div>
 
         {/* Connect Button */}

@@ -2,8 +2,7 @@ import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProvider } from "@/contexts/WalletContext";
-import { MarketDataProvider } from "@/contexts/MarketDataContext";
-import { PortfolioProvider } from "@/contexts/PortfolioContext";
+import { DataProvider } from "@/contexts/DataContext";
 import { Toaster } from "sonner";
 
 const inter = Inter({
@@ -32,12 +31,10 @@ export default function RootLayout({
         className={`${inter.variable} ${jetbrainsMono.variable} bg-dark text-neutral-400 font-sans antialiased min-h-screen`}
       >
         <WalletProvider>
-          <MarketDataProvider>
-            <PortfolioProvider>
-              {children}
-              <Toaster />
-            </PortfolioProvider>
-          </MarketDataProvider>
+          <DataProvider>
+            {children}
+            <Toaster />
+          </DataProvider>
         </WalletProvider>
       </body>
     </html>
