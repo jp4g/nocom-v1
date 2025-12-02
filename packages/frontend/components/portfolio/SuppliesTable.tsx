@@ -76,6 +76,12 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
     [activeAccount?.address]
   );
 
+  // Filter out positions with zero balance
+  const filteredPositions = useMemo(
+    () => positions.filter(p => p.balance > 0n),
+    [positions]
+  );
+
   return (
     <>
       <WithdrawModal
@@ -118,7 +124,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
                 </td>
               </tr>
             ) : (
-              positions.map((item, index) => (
+              filteredPositions.map((item, index) => (
                 <tr key={`${item.symbol}-${index}`} className="group hover:bg-surface-hover transition-colors border-b border-surface-border last:border-0">
                   <td className="py-4 px-5">
                     <div className="flex items-center gap-3">
@@ -185,7 +191,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
       </div>
 
       {/* Empty State (Hidden when there are loans) */}
-      {state.status !== 'loading' && positions.length === 0 && (
+      {state.status !== 'loading' && filteredPositions.length === 0 && (
         <div className="py-12 flex flex-col items-center justify-center text-center">
           <div className="w-12 h-12 rounded-full bg-surface-border flex items-center justify-center mb-3">
             <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">

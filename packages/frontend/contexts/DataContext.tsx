@@ -62,6 +62,8 @@ export interface CollateralPosition extends PortfolioPosition {
 export interface DebtPosition extends PortfolioPosition {
   apy: number;
   healthFactor: number;
+  principal: bigint;
+  interest: bigint;
 }
 
 export interface PortfolioState {
@@ -546,6 +548,8 @@ export function DataProvider({ children }: PropsWithChildren) {
               poolAddress: marketConfig.poolAddress,
               apy: DEBT_APY,
               healthFactor,
+              principal: contractPosition.principal,
+              interest: contractPosition.interest,
             });
           }
         });
