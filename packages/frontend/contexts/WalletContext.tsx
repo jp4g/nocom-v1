@@ -15,12 +15,8 @@ import type { Wallet, Aliased } from '@aztec/aztec.js/wallet'
 import { AztecAddress } from '@aztec/stdlib/aztec-address'
 import type { EmbeddedWallet } from '@/lib/wallet/embeddedWallet'
 import { registerPublicContracts } from '@/lib/contract'
-import type {
-  MockPriceFeedContract,
-  NocomLendingPoolV1Contract,
-  TokenContract,
-} from '@nocom-v1/contracts/artifacts'
 import { NocomPublicContracts } from '@/lib/types'
+import { NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -42,6 +38,8 @@ export type WalletContextValue = {
   wallet?: WalletHandle
   node?: AztecNode
   contracts?: NocomPublicContracts
+  escrowContracts: Map<string, NocomEscrowV1Contract> // Maps debtPool address -> escrow contract
+  registerEscrow: (debtPoolAddress: string, escrowAddress: string) => Promise<NocomEscrowV1Contract>
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
   setActiveAccount: (address: string) => void
@@ -101,6 +99,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const [node, setNode] = useState<AztecNode | undefined>(undefined)
   const [activeAccountState, setActiveAccountState] = useState<WalletAccount | undefined>(undefined)
   const [contracts, setContracts] = useState<NocomPublicContracts | undefined>(undefined)
+  const [escrowContracts, setEscrowContracts] = useState<Map<string, NocomEscrowV1Contract>>(new Map())
 
   const walletHandleRef = useRef<WalletHandle | undefined>(undefined)
   const activeAccountRef = useRef<WalletAccount | undefined>(undefined)
@@ -108,6 +107,35 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const setActiveAccountInternal = useCallback((account?: WalletAccount) => {
     activeAccountRef.current = account
     setActiveAccountState(account)
+  }, [])
+
+  const registerEscrow = useCallback(async (debtPoolAddress: string, escrowAddress: string) => {
+    const handle = walletHandleRef.current
+    if (!handle || handle.type !== 'embedded') {
+      throw new Error('Escrow registration only supported for embedded wallet')
+    }
+
+    try {
+      console.log('[WalletContext] Registering escrow contract:', { debtPoolAddress, escrowAddress })
+
+      // Initialize the contract at the given address
+      const escrowContract = await NocomEscrowV1Contract.at(
+        AztecAddress.fromString(escrowAddress),
+        handle.instance
+      )
+
+      setEscrowContracts(prev => {
+        const updated = new Map(prev)
+        updated.set(debtPoolAddress, escrowContract)
+        return updated
+      })
+
+      console.log('[WalletContext] Escrow contract registered successfully')
+      return escrowContract
+    } catch (error) {
+      console.error('[WalletContext] Failed to register escrow:', error)
+      throw error
+    }
   }, [])
 
   const disconnect = useCallback(async () => {
@@ -129,6 +157,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setNode(undefined)
     setActiveAccountInternal(undefined)
     setContracts(undefined)
+    setEscrowContracts(new Map())
   }, [setActiveAccountInternal])
 
   const refreshAccounts = useCallback(async () => {
@@ -234,6 +263,8 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       wallet: walletHandleRef.current,
       node,
       contracts,
+      escrowContracts,
+      registerEscrow,
       connect,
       disconnect,
       setActiveAccount,
@@ -245,6 +276,8 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       accounts,
       activeAccountState,
       contracts,
+      escrowContracts,
+      registerEscrow,
       connect,
       disconnect,
       setActiveAccount,

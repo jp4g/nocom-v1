@@ -329,10 +329,15 @@ export default function MarketTable() {
             open={collateralizeModalOpen}
             onClose={() => setCollateralizeModalOpen(false)}
             collateralTokenName={selectedMarket.collateralAsset}
-            tokenContract={
+            collateralTokenContract={
               selectedMarket.collateralAsset === 'USDC'
                 ? contracts.tokens.usdc
                 : contracts.tokens.zec
+            }
+            debtTokenAddress={
+              selectedMarket.loanAsset === 'USDC'
+                ? contracts.tokens.usdc.address
+                : contracts.tokens.zec.address
             }
             poolContract={selectedMarket.contract}
             wallet={wallet}

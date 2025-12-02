@@ -8,12 +8,16 @@ import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { useBalance } from '@/hooks/useBalance';
+import { useEscrow } from '@/hooks/useEscrow';
+import { setEscrowAddress } from '@/lib/storage/escrowStorage';
+import { deployEscrowContract, depositCollateral } from '@nocom-v1/contracts/contract';
 
 type CollateralizeModalProps = {
   open: boolean;
   onClose: () => void;
   collateralTokenName: string;
-  tokenContract: TokenContract;
+  collateralTokenContract: TokenContract;
+  debtTokenAddress: AztecAddress;
   poolContract: NocomLendingPoolV1Contract;
   wallet: BaseWallet | undefined;
   userAddress: AztecAddress | undefined;
@@ -23,20 +27,27 @@ export default function CollateralizeModal({
   open,
   onClose,
   collateralTokenName,
-  tokenContract,
+  collateralTokenContract,
+  debtTokenAddress,
   poolContract,
   wallet,
   userAddress,
 }: CollateralizeModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  // Fetch user's balance for this token
+  // Fetch user's balance for the collateral token
   const { balance, isLoading: isBalanceLoading, error: balanceError } = useBalance(
-    tokenContract,
+    collateralTokenContract,
     wallet,
     userAddress
+  );
+
+  // Check for existing escrow contract
+  const { escrowContract, isLoading: isEscrowLoading, refetch: refetchEscrow } = useEscrow(
+    poolContract?.address.toString()
   );
 
   useEffect(() => {
@@ -93,8 +104,67 @@ export default function CollateralizeModal({
     return !isNaN(numValue) && numValue > 0;
   }, [inputValue, isBalanceLoading, balance]);
 
+  const ensureEscrowDeployed = async () => {
+    if (!wallet || !userAddress || !poolContract) {
+      throw new Error('Missing required parameters');
+    }
+
+    // If escrow already exists, return it
+    if (escrowContract) {
+      console.log('[CollateralizeModal] Using existing escrow:', escrowContract.address.toString());
+      return escrowContract;
+    }
+
+    console.log('[CollateralizeModal] No escrow found - deploying new escrow');
+    setProcessingStep('Creating private escrow...');
+
+    // Deploy escrow contract
+    const { contract, secretKey } = await deployEscrowContract(
+      wallet,
+      userAddress,
+      poolContract.address,
+      collateralTokenContract.address,
+      debtTokenAddress,
+      true // auto approve registration for now
+    );
+    const escrowAddress = contract.address.toString();
+
+    console.log('[CollateralizeModal] Escrow deployed:', escrowAddress);
+
+    // Step 2: Call API to register escrow (still part of creating private escrow)
+    // Keep the same message for seamless UX
+    const apiResponse = await fetch('/api/register-escrow', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        escrowAddress,
+        debtPoolAddress: poolContract.address.toString(),
+        secretKey: secretKey.toString(),
+      }),
+    });
+
+    if (!apiResponse.ok) {
+      throw new Error('Failed to register escrow with API');
+    }
+
+    console.log('[CollateralizeModal] Escrow registered with API');
+
+    // Step 3: Store in local storage
+    setEscrowAddress(poolContract.address.toString(), escrowAddress);
+    console.log('[CollateralizeModal] Escrow stored in local storage');
+
+    // Step 4: Refetch to update the cache and return the contract
+    await refetchEscrow();
+    console.log('[CollateralizeModal] Escrow cache updated');
+
+    // Return the deployed contract directly
+    return contract;
+  };
+
   const handleCollateralize = async () => {
-    if (!isValidInput || !wallet || !userAddress || !poolContract || !tokenContract) return;
+    if (!isValidInput || !wallet || !userAddress || !poolContract || !collateralTokenContract) return;
 
     setIsProcessing(true);
 
@@ -103,31 +173,31 @@ export default function CollateralizeModal({
       const [whole, decimal = ''] = inputValue.split('.');
       const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
       const amount = BigInt(whole + paddedDecimal);
-      console.log('Collateralizing amount:', amount.toString());
-      console.log("poolContract:", poolContract.address.toString());
-      console.log("tokenContract:", tokenContract.address.toString());
 
-      // TODO: Call collateralize function (replace this with actual function)
-      // const txReceipt = await collateralizeLiquidity(
-      //   wallet,
-      //   userAddress,
-      //   poolContract,
-      //   tokenContract,
-      //   amount
-      // );
+      // Step 1: Ensure escrow is deployed (returns the contract instance)
+      const escrowContractInstance = await ensureEscrowDeployed();
+      console.log('Using escrow contract:', escrowContractInstance.address.toString());
 
-      // Placeholder - remove when actual function is implemented
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      console.log('Collateralize transaction would be sent here');
+      // Step 2: Collateralize
+      setProcessingStep(`Collateralizing ${collateralTokenName}...`);
+      const txReceipt = await depositCollateral(
+        wallet,
+        userAddress,
+        escrowContractInstance,
+        poolContract.address,
+        collateralTokenContract,
+        amount
+      );
+      console.log('Collateralization transaction receipt:', txReceipt);
 
       toast.success(`Successfully collateralized ${inputValue} ${collateralTokenName}`);
       onClose();
     } catch (error) {
       console.error('Collateralize error:', error);
-      toast.error('Failed to collateralize');
-      onClose();
+      toast.error(error instanceof Error ? error.message : 'Failed to collateralize');
     } finally {
       setIsProcessing(false);
+      setProcessingStep('');
     }
   };
 
@@ -156,6 +226,9 @@ export default function CollateralizeModal({
             </div>
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="w-12 h-12 animate-spin text-brand-purple mb-4" />
+              {processingStep && (
+                <p className="text-sm text-text-muted mt-2">{processingStep}</p>
+              )}
             </div>
           </div>
         ) : (
@@ -178,6 +251,15 @@ export default function CollateralizeModal({
             </div>
 
             <div className="p-6 space-y-6">
+              {/* First-time setup notice */}
+              {!isEscrowLoading && !escrowContract && (
+                <div className="p-4 bg-blue-900/20 border border-blue-900/50 rounded-lg">
+                  <p className="text-sm text-blue-400">
+                    <strong>First-time setup:</strong> An escrow contract will be deployed for this market on your first collateralization.
+                  </p>
+                </div>
+              )}
+
               {/* APY Display */}
               <div className="flex items-center justify-between p-4 bg-surface-hover border border-surface-border rounded-lg">
                 <span className="text-sm text-text-muted">Collateral APY</span>
