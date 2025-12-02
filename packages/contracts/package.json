@@ -3,6 +3,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "postinstall": "bun run scripts/postinstall.ts",
     "build:nr": "bun run scripts/build_contracts.ts",
     "test:nr": "aztec test",
     "sandbox": "aztec start --sandbox",

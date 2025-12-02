@@ -13,7 +13,7 @@ pub fn get_next_epoch(context: &mut PrivateContext, epoch_length: u64) -> u64 {
 
     // constrain transaction to deliver before next epoch starts
     if include_by_timestamp > next_epoch_boundary {
-        context.set_include_by_timestamp(next_epoch_boundary);
+        // context.set_include_by_timestamp(next_epoch_boundary);
     }
 
     next_epoch

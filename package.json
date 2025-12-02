@@ -13,6 +13,6 @@
     "aztecVersion": "v3.0.0-devnet.5"
   },
   "dependencies": {
-    "@aztec/aztec": "^2.1.8"
+    "@aztec/aztec": "3.0.0-devnet.5"
   }
 }

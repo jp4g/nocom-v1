@@ -1,14 +1,14 @@
 {
   "nocom_escrow-NocomEscrowV1.json": {
     "contractName": "NocomEscrowV1",
-    "hash": "2a01a41b650c289b6ee45170a96ea3f31a8f6cc70e1a25256af5ff32044ca38c"
+    "hash": "4ba394aa5c8b0942f4cf6ad0ac3e650f0d7db70c6d3f5ae471df16d7cf77525c"
   },
   "nocom_lending_pool-NocomLendingPoolV1.json": {
     "contractName": "NocomLendingPoolV1",
-    "hash": "1e754b39e60523ea79ddedbcca6d699c1737ed6e931e91aa66c282f2e8874bce"
+    "hash": "9d88ade2736da4d673ffc70beff75f521df485eb3bdb327029003da501db8438"
   },
   "nocom_mock_price_oracle-MockPriceFeed.json": {
     "contractName": "MockPriceFeed",
-    "hash": "80466cedc53ca16d8382a2b530ea08cc514a832d77f1cf801717b03337f18def"
+    "hash": "c0562f65cdefb94de17a6a71e8bac46b4f0abeab355f761b7ca7cc5f58088d44"
   }
 }
