@@ -67,13 +67,13 @@ export async function registerPublicContracts(
         JSON.parse(deployments.zecDebtPool.instance)
     );
     const zecDebtPoolAddress = AztecAddress.fromString(deployments.zecDebtPool.address);
-    if (!addressBook.find(({ item }) => item.equals(usdcAddress))) {
+    if (!addressBook.find(({ item }) => item.equals(usdcDebtPoolAddress))) {
         await wallet.registerContract(
             usdcDebtPoolInstance,
             NocomLendingPoolV1ContractArtifact
         );
     }
-    if (!addressBook.find(({ item }) => item.equals(zecAddress))) {
+    if (!addressBook.find(({ item }) => item.equals(zecDebtPoolAddress))) {
         await wallet.registerContract(
             zecDebtPoolInstance,
             NocomLendingPoolV1ContractArtifact

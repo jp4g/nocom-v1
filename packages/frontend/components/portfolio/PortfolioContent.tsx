@@ -7,7 +7,7 @@ import BorrowsTable from './BorrowsTable';
 import CollateralTable from './CollateralTable';
 
 export default function PortfolioContent() {
-  const { portfolioState: state, portfolioData: data } = useDataContext();
+  const { portfolioState: state, portfolioData: data, refetchPortfolio } = useDataContext();
 
   return (
     <>
@@ -17,6 +17,7 @@ export default function PortfolioContent() {
         avgHealthFactor={data.avgHealthFactor}
         totalLoansUSD={data.totalLoansUSD}
         totalDebtUSD={data.totalDebtUSD}
+        onRefresh={refetchPortfolio}
       />
 
       {/* Dashboard Grid */}

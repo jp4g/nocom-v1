@@ -13,10 +13,12 @@ import {
 import { type AztecNode, createAztecNodeClient } from '@aztec/aztec.js/node'
 import type { Wallet, Aliased } from '@aztec/aztec.js/wallet'
 import { AztecAddress } from '@aztec/stdlib/aztec-address'
+import { Fr } from '@aztec/foundation/fields'
 import type { EmbeddedWallet } from '@/lib/wallet/embeddedWallet'
 import { registerPublicContracts } from '@/lib/contract'
 import { NocomPublicContracts } from '@/lib/types'
-import { NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts'
+import { NocomEscrowV1Contract, NocomEscrowV1ContractArtifact } from '@nocom-v1/contracts/artifacts'
+import { ContractInstanceWithAddressSchema } from '@aztec/stdlib/contract'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -39,7 +41,7 @@ export type WalletContextValue = {
   node?: AztecNode
   contracts?: NocomPublicContracts
   escrowContracts: Map<string, NocomEscrowV1Contract> // Maps debtPool address -> escrow contract
-  registerEscrow: (debtPoolAddress: string, escrowAddress: string) => Promise<NocomEscrowV1Contract>
+  registerEscrow: (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => Promise<NocomEscrowV1Contract>
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
   setActiveAccount: (address: string) => void
@@ -109,7 +111,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setActiveAccountState(account)
   }, [])
 
-  const registerEscrow = useCallback(async (debtPoolAddress: string, escrowAddress: string) => {
+  const registerEscrow = useCallback(async (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => {
     const handle = walletHandleRef.current
     if (!handle || handle.type !== 'embedded') {
       throw new Error('Escrow registration only supported for embedded wallet')
@@ -118,9 +120,25 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     try {
       console.log('[WalletContext] Registering escrow contract:', { debtPoolAddress, escrowAddress })
 
-      // Initialize the contract at the given address
+      const escrowAztecAddress = AztecAddress.fromString(escrowAddress)
+      const secretKeyFr = Fr.fromString(secretKey)
+
+      // Parse the contract instance from the stored JSON string
+      const escrowContractInstance = ContractInstanceWithAddressSchema.parse(
+        JSON.parse(instanceString)
+      )
+
+      // Register the contract with its secret key so the PXE can decrypt notes
+      await handle.instance.registerContract(escrowContractInstance, NocomEscrowV1ContractArtifact, secretKeyFr)
+      console.log('[WalletContext] Escrow contract registered with PXE')
+
+      // Register as sender
+      await handle.instance.registerSender(escrowAztecAddress)
+      console.log('[WalletContext] Escrow registered as sender')
+
+      // Now initialize the contract interface
       const escrowContract = await NocomEscrowV1Contract.at(
-        AztecAddress.fromString(escrowAddress),
+        escrowAztecAddress,
         handle.instance
       )
 

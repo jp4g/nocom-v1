@@ -15,7 +15,6 @@ import { Fr } from "@aztec/foundation/fields";
 import { supplyLiquidity } from "../ts/src/contract/pool.ts";
 import { borrowFromPool, depositCollateral, registerEscrowWithPool } from "../ts/src/contract/escrow.ts";
 import type { SendInteractionOptions } from "@aztec/aztec.js/contracts";
-import { FeeJuicePaymentMethodWithClaim } from "@aztec/aztec.js/fee";
 
 const {
     AZTEC_NODE_URL = "http://localhost:8080",

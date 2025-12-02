@@ -104,7 +104,7 @@ pub contract NocomLendingPoolV1 {
         // 3. intitialize empty notes for loan and collateral
         storage.collateral.at(caller).initialize(CollateralNote::new(caller, 0))
             .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
-        storage.loan.at(caller).initialize(LoanNote::new(caller, 0, 0))
+        storage.debt.at(caller).initialize(LoanNote::new(caller, 0, 0))
             .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
     }
 
@@ -847,5 +847,10 @@ pub contract NocomLendingPoolV1 {
         );
 
         (ltv_health, liquidation_health)
+    }
+
+    #[external("utility")]
+    unconstrained fn get_config() -> Config {
+        storage.config.read()
     }
 }

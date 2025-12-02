@@ -1,7 +1,7 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { TxReceipt } from "@aztec/stdlib/tx";
-import type { NocomLendingPoolV1Contract, TokenContract } from "../artifacts";
+import type { NocomLendingPoolV1Contract, TokenContract } from "./artifacts";
 import { privateToPublicTransferAuthwit } from "./token";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import type { DebtPosition, LoanPosition } from "../types";

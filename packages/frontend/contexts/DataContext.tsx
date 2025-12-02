@@ -8,7 +8,7 @@ import { Market, MarketDataState, AggregateMarketData } from '@/lib/types';
 import { NocomLendingPoolV1Contract, NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
-import { batchSimulateDebtPosition } from '@/lib/contract/position';
+import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
 import { EPOCH_LENGTH } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
 
@@ -398,8 +398,54 @@ export function DataProvider({ children }: PropsWithChildren) {
       console.log('[DataContext] Found', marketsWithEscrows.length, 'markets with escrows');
 
       // Initialize empty arrays for positions
+      const loanPositions: LoanPosition[] = [];
       const collateralPositions: CollateralPosition[] = [];
       const debtPositions: DebtPosition[] = [];
+
+      // Fetch loan positions first (doesn't require escrow)
+      const allMarketContracts = marketConfigs.map(m => m.contract);
+      console.log('[DataContext] Fetching loan positions for', allMarketContracts.length, 'markets');
+      const loanResults = await batchSimulateLoanPosition(
+        allMarketContracts,
+        wallet,
+        userAddress,
+        currentEpoch
+      );
+
+      // Map loan results to UI positions
+      loanResults.forEach((loanPosition, poolAddress) => {
+        const marketConfig = marketConfigs.find(
+          m => m.poolAddress === poolAddress.toString()
+        );
+        if (!marketConfig) return;
+
+        // Get the price for the loan asset
+        const loanTokenAddress = contracts?.tokens[
+          marketConfig.loanAsset.toLowerCase() as 'usdc' | 'zec'
+        ]?.address?.toString();
+        const loanPriceState = loanTokenAddress ? prices.get(loanTokenAddress) : undefined;
+        const loanPrice = loanPriceState?.status === 'loaded' && loanPriceState.price
+          ? Number(loanPriceState.price) / 1e4
+          : 0;
+
+        // Create loan position if there's a loan
+        const totalLoan = loanPosition.principal + loanPosition.interest;
+        if (totalLoan > 0n) {
+          const loanBalanceUSD = (Number(totalLoan) / 1e18) * loanPrice;
+
+          loanPositions.push({
+            symbol: marketConfig.loanAsset.toUpperCase(),
+            loanAsset: marketConfig.loanAsset.toLowerCase(),
+            collateralAsset: marketConfig.collateralAsset.toLowerCase(),
+            balance: totalLoan,
+            balanceUSD: loanBalanceUSD,
+            poolAddress: marketConfig.poolAddress,
+            apy: LOAN_APY,
+          });
+        }
+      });
+
+      console.log('[DataContext] Loan positions fetched:', loanPositions.length);
 
       // Fetch debt positions if we have any markets with escrows
       if (marketsWithEscrows.length > 0) {
@@ -472,10 +518,6 @@ export function DataProvider({ children }: PropsWithChildren) {
           }
         });
       }
-
-      // Loans will be populated later when the loan position API is available
-      // For now, return empty loans
-      const loanPositions: LoanPosition[] = [];
 
       // Calculate totals
       const totalLoansUSD = loanPositions.reduce((sum, pos) => sum + pos.balanceUSD, 0);

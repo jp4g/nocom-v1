@@ -126,6 +126,9 @@ utilization: {
     /** get_collateral_and_debt(borrower: struct) */
     get_collateral_and_debt: ((borrower: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
+    /** get_config() */
+    get_config: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
     /** get_health_factor(borrower: struct, next_epoch: integer, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
     get_health_factor: ((borrower: AztecAddressLike, next_epoch: (bigint | number), asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 

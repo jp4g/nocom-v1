@@ -169,4 +169,9 @@ pub contract NocomEscrowV1 {
                 asserted_debt_token_price,
             ).call(&mut context);
     }
+
+    #[external("utility")]
+    unconstrained fn get_config() -> ConfigNote {
+        storage.config.view_note()
+    }
 }

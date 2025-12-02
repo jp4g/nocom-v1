@@ -1,6 +1,6 @@
 import { BaseWallet } from "@aztec/aztec.js/wallet";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
-import type { TokenContract } from "../artifacts";
+import type { TokenContract } from "./artifacts";
 import { AuthWitness } from "@aztec/stdlib/auth-witness";
 import { Fr } from "@aztec/aztec.js/fields";
 

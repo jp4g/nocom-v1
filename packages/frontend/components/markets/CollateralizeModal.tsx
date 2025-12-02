@@ -9,7 +9,7 @@ import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { useBalance } from '@/hooks/useBalance';
 import { useEscrow } from '@/hooks/useEscrow';
-import { setEscrowAddress } from '@/lib/storage/escrowStorage';
+import { setEscrowData } from '@/lib/storage/escrowStorage';
 import { deployEscrowContract, depositCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 
@@ -154,11 +154,12 @@ export default function CollateralizeModal({
 
     console.log('[CollateralizeModal] Escrow registered with API');
 
-    // Step 3: Store in local storage (per-user)
+    // Step 3: Store in local storage (per-user) with secretKey and instance for re-registration on reload
     if (!userAddress) {
       throw new Error('User address not available');
     }
-    setEscrowAddress(userAddress.toString(), poolContract.address.toString(), escrowAddress);
+    const instanceString = JSON.stringify(contract.instance);
+    setEscrowData(userAddress.toString(), poolContract.address.toString(), escrowAddress, secretKey.toString(), instanceString);
     console.log('[CollateralizeModal] Escrow stored in local storage');
 
     // Step 4: Refetch to update the cache and return the contract
