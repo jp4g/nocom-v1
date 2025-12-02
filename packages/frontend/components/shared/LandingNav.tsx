@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Ghost } from 'lucide-react';
+import { Layers } from 'lucide-react';
 import { useWallet } from '@/contexts/WalletContext';
 
 export default function LandingNav() {
@@ -14,9 +14,9 @@ export default function LandingNav() {
         <div className="flex items-center gap-3">
           <div className="relative w-6 h-6 flex items-center justify-center">
             <div className="absolute inset-0 bg-indigo-500/20 blur-md rounded-full"></div>
-            <Ghost className="w-5 h-5 text-indigo-400 relative z-10" />
+            <Layers className="w-5 h-5 text-indigo-400 relative z-10" />
           </div>
-          <span className="text-white font-medium tracking-tight text-sm">GHOST</span>
+          <span className="text-white font-medium tracking-tight text-sm">NOCOM.FI</span>
         </div>
 
         <div className="hidden md:flex items-center gap-8">
@@ -28,7 +28,7 @@ export default function LandingNav() {
         <div className="flex items-center gap-4">
           <button className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md border border-white/5 bg-white/5 hover:bg-white/10 transition-colors text-xs font-mono text-neutral-300">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
-            Ethereum
+            Aztec
           </button>
           <Link
             href="/app"

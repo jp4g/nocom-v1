@@ -11,6 +11,7 @@ import { useBalance } from '@/hooks/useBalance';
 import { useEscrow } from '@/hooks/useEscrow';
 import { setEscrowAddress } from '@/lib/storage/escrowStorage';
 import { deployEscrowContract, depositCollateral } from '@nocom-v1/contracts/contract';
+import { simulationQueue } from '@/lib/utils/simulationQueue';
 
 type CollateralizeModalProps = {
   open: boolean;
@@ -118,14 +119,16 @@ export default function CollateralizeModal({
     console.log('[CollateralizeModal] No escrow found - deploying new escrow');
     setProcessingStep('Creating private escrow...');
 
-    // Deploy escrow contract
-    const { contract, secretKey } = await deployEscrowContract(
-      wallet,
-      userAddress,
-      poolContract.address,
-      collateralTokenContract.address,
-      debtTokenAddress,
-      true // auto approve registration for now
+    // Deploy escrow contract via simulation queue to prevent IndexedDB transaction conflicts
+    const { contract, secretKey } = await simulationQueue.enqueue(() =>
+      deployEscrowContract(
+        wallet,
+        userAddress,
+        poolContract.address,
+        collateralTokenContract.address,
+        debtTokenAddress,
+        true // auto approve registration for now
+      )
     );
     const escrowAddress = contract.address.toString();
 
@@ -178,15 +181,17 @@ export default function CollateralizeModal({
       const escrowContractInstance = await ensureEscrowDeployed();
       console.log('Using escrow contract:', escrowContractInstance.address.toString());
 
-      // Step 2: Collateralize
+      // Step 2: Collateralize via simulation queue to prevent IndexedDB transaction conflicts
       setProcessingStep(`Collateralizing ${collateralTokenName}...`);
-      const txReceipt = await depositCollateral(
-        wallet,
-        userAddress,
-        escrowContractInstance,
-        poolContract.address,
-        collateralTokenContract,
-        amount
+      const txReceipt = await simulationQueue.enqueue(() =>
+        depositCollateral(
+          wallet,
+          userAddress,
+          escrowContractInstance,
+          poolContract.address,
+          collateralTokenContract,
+          amount
+        )
       );
       console.log('Collateralization transaction receipt:', txReceipt);
 

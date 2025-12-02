@@ -12,7 +12,7 @@ export default function InteroperabilitySection() {
         <div>
           <h2 className="text-3xl font-medium text-white mb-6">Permissionless Interoperability</h2>
           <p className="text-neutral-400 mb-8 max-w-md">
-            Ghost is built to be composed. Integrate privacy-preserving lending directly into your wallet, yield aggregator, or institutional dashboard.
+            Nocom.Fi is built to be composed. Integrate privacy-preserving lending directly into your wallet, yield aggregator, or institutional dashboard.
           </p>
 
           <div className="space-y-6">
@@ -36,7 +36,7 @@ export default function InteroperabilitySection() {
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-mono text-xs shadow-[0_0_10px_rgba(99,102,241,0.5)]">3</div>
               <div>
                 <h4 className="text-white text-sm font-medium mb-1">Settlement</h4>
-                <p className="text-xs text-neutral-500">Funds verify and settle on Ethereum mainnet.</p>
+                <p className="text-xs text-neutral-500">Funds verify and settle on Aztec.</p>
               </div>
             </div>
           </div>
@@ -69,7 +69,7 @@ export default function InteroperabilitySection() {
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                   <EyeOff className="w-4 h-4 text-indigo-400" />
-                  <span className="text-sm text-indigo-100">Ghost Mode</span>
+                  <span className="text-sm text-indigo-100">Private Mode</span>
                 </div>
                 <div className="relative inline-block w-10 align-middle select-none">
                   <input

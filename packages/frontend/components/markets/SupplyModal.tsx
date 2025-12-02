@@ -9,6 +9,7 @@ import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { useBalance } from '@/hooks/useBalance';
 import { supplyLiquidity } from '@nocom-v1/contracts/contract';
+import { simulationQueue } from '@/lib/utils/simulationQueue';
 
 type SupplyModalProps = {
   open: boolean;
@@ -107,13 +108,15 @@ export default function SupplyModal({
       console.log('Supplying amount:', amount.toString());
       console.log("poolContract:", poolContract.address.toString());
       console.log("tokenContract:", tokenContract.address.toString());
-      // Call supply function
-      const txReceipt = await supplyLiquidity(
-        wallet,
-        userAddress,
-        poolContract,
-        tokenContract,
-        amount
+      // Call supply function via simulation queue to prevent IndexedDB transaction conflicts
+      const txReceipt = await simulationQueue.enqueue(() =>
+        supplyLiquidity(
+          wallet,
+          userAddress,
+          poolContract,
+          tokenContract,
+          amount
+        )
       );
       // return
       console.log('Supply transaction receipt:', txReceipt);

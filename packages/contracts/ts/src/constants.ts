@@ -1,6 +1,6 @@
 import { precision } from "./utils";
 
-export const EPOCH_LENGTH = 450; // 7.5 minutes
+export const EPOCH_LENGTH = 900; // 15 minutes
 export const LEND_INTEREST = 40n; // 4.0%
 export const BORROW_INTEREST = 50n; // 5.0%
 

@@ -15,7 +15,7 @@ export default function Hero() {
         </h1>
 
         <p className="text-lg text-neutral-400 leading-relaxed mb-10 max-w-xl mx-auto">
-          Supply and borrow assets with complete anonymity. Ghost Protocol utilizes zk-SNARKs to shield your balance and transaction history on-chain.
+          Supply and borrow assets with complete anonymity. Nocom.Fi utilizes zk-SNARKs to shield your balance and transaction history on-chain.
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 w-full max-w-4xl border-y border-white/5 py-8">

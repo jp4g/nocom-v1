@@ -23,7 +23,7 @@ export default function MarketsNav() {
           <div className="w-8 h-8 bg-brand-purple rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(91,30,138,0.5)]">
             <Layers className="w-5 h-5 text-white" />
           </div>
-          <span className="font-semibold text-lg tracking-tight">Ghost Protocol</span>
+          <span className="font-semibold text-lg tracking-tight">Nocom.Fi</span>
         </Link>
 
         {/* Nav Links */}

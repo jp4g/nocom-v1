@@ -15,8 +15,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Ghost Protocol | Privacy Money Market",
-  description: "Supply and borrow assets with complete anonymity. Ghost Protocol utilizes zk-SNARKs to shield your balance and transaction history on-chain.",
+  title: "Nocom.Fi | Privacy Money Market",
+  description: "Supply and borrow assets with complete anonymity. Nocom.Fi utilizes zk-SNARKs to shield your balance and transaction history on-chain.",
 };
 
 export default function RootLayout({

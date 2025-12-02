@@ -18,7 +18,7 @@ export default function MarketDashboard() {
         {/* Dashboard Content */}
         <div className="p-6">
           <div className="flex justify-between items-end mb-6">
-            <h3 className="text-lg text-white font-medium">Ghost Markets</h3>
+            <h3 className="text-lg text-white font-medium">Nocom Markets</h3>
             <div className="flex gap-2">
               <span className="px-3 py-1 rounded-md bg-white/5 text-xs text-white border border-white/10">All</span>
               <span className="px-3 py-1 rounded-md text-xs text-neutral-500 hover:text-white transition-colors cursor-pointer">Stablecoins</span>
