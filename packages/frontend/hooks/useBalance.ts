@@ -4,14 +4,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { TokenContract } from '@nocom-v1/contracts/artifacts';
+import { simulationQueue } from '@/lib/utils/simulationQueue';
 
-export interface SupplyInfoState {
+export interface BalanceState {
   status: 'loading' | 'loaded' | 'error';
   balance?: bigint;
   error?: string;
 }
 
-export interface UseSupplyInfoReturn {
+export interface UseBalanceReturn {
   balance: bigint | undefined;
   isLoading: boolean;
   error?: string;
@@ -19,19 +20,19 @@ export interface UseSupplyInfoReturn {
 }
 
 /**
- * Hook to fetch user's token balance for supply operations.
+ * Hook to fetch user's token balance.
  *
- * @param tokenAddress - The address of the token to check balance for
+ * @param tokenContract - The token contract to check balance for
  * @param wallet - The wallet to use for balance query
  * @param userAddress - The user's address
  * @returns Object containing balance, loading state, error, and refetch function
  */
-export function useSupplyInfo(
+export function useBalance(
   tokenContract: TokenContract | undefined,
   wallet: BaseWallet | undefined,
   userAddress: AztecAddress | undefined
-): UseSupplyInfoReturn {
-  const [state, setState] = useState<SupplyInfoState>({
+): UseBalanceReturn {
+  const [state, setState] = useState<BalanceState>({
     status: 'loading',
   });
 
@@ -45,9 +46,15 @@ export function useSupplyInfo(
     setState({ status: 'loading' });
 
     try {
-      const availableBalance = await tokenContract.methods
-        .balance_of_private(userAddress)
-        .simulate({ from: userAddress });
+      // Queue the simulation to prevent concurrent IndexedDB access
+      const availableBalance = await simulationQueue.enqueue(async () => {
+        console.log('[useBalance] Starting balance simulation');
+        const balance = await tokenContract.methods
+          .balance_of_private(userAddress)
+          .simulate({ from: userAddress });
+        console.log('[useBalance] Balance simulation completed');
+        return balance;
+      });
 
       console.log("availableBalance:", availableBalance);
 
@@ -56,7 +63,7 @@ export function useSupplyInfo(
         balance: availableBalance,
       });
     } catch (error) {
-      console.error('[useSupplyInfo] Error fetching balance:', error);
+      console.error('[useBalance] Error fetching balance:', error);
       setState({
         status: 'error',
         error: error instanceof Error ? error.message : 'Failed to fetch balance',

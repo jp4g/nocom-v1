@@ -8,27 +8,26 @@ import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { useBalance } from '@/hooks/useBalance';
-import { supplyLiquidity } from '@nocom-v1/contracts/contract';
 
-type SupplyModalProps = {
+type CollateralizeModalProps = {
   open: boolean;
   onClose: () => void;
-  debtTokenName: string;
+  collateralTokenName: string;
   tokenContract: TokenContract;
   poolContract: NocomLendingPoolV1Contract;
   wallet: BaseWallet | undefined;
   userAddress: AztecAddress | undefined;
 };
 
-export default function SupplyModal({
+export default function CollateralizeModal({
   open,
   onClose,
-  debtTokenName,
+  collateralTokenName,
   tokenContract,
   poolContract,
   wallet,
   userAddress,
-}: SupplyModalProps) {
+}: CollateralizeModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -94,7 +93,7 @@ export default function SupplyModal({
     return !isNaN(numValue) && numValue > 0;
   }, [inputValue, isBalanceLoading, balance]);
 
-  const handleSupply = async () => {
+  const handleCollateralize = async () => {
     if (!isValidInput || !wallet || !userAddress || !poolContract || !tokenContract) return;
 
     setIsProcessing(true);
@@ -104,24 +103,28 @@ export default function SupplyModal({
       const [whole, decimal = ''] = inputValue.split('.');
       const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
       const amount = BigInt(whole + paddedDecimal);
-      console.log('Supplying amount:', amount.toString());
+      console.log('Collateralizing amount:', amount.toString());
       console.log("poolContract:", poolContract.address.toString());
       console.log("tokenContract:", tokenContract.address.toString());
-      // Call supply function
-      const txReceipt = await supplyLiquidity(
-        wallet,
-        userAddress,
-        poolContract,
-        tokenContract,
-        amount
-      );
-      // return
-      console.log('Supply transaction receipt:', txReceipt);
-      toast.success(`Successfully supplied ${inputValue} ${debtTokenName}`);
+
+      // TODO: Call collateralize function (replace this with actual function)
+      // const txReceipt = await collateralizeLiquidity(
+      //   wallet,
+      //   userAddress,
+      //   poolContract,
+      //   tokenContract,
+      //   amount
+      // );
+
+      // Placeholder - remove when actual function is implemented
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Collateralize transaction would be sent here');
+
+      toast.success(`Successfully collateralized ${inputValue} ${collateralTokenName}`);
       onClose();
     } catch (error) {
-      console.error('Supply error:', error);
-      toast.error('Failed to supply collateral');
+      console.error('Collateralize error:', error);
+      toast.error('Failed to collateralize');
       onClose();
     } finally {
       setIsProcessing(false);
@@ -148,7 +151,7 @@ export default function SupplyModal({
           <div className="p-6">
             <div className="border-b border-surface-border pb-6">
               <h2 className="text-xl font-semibold text-white">
-                Supplying {debtTokenName} collateral...
+                Collateralizing {collateralTokenName}...
               </h2>
             </div>
             <div className="flex flex-col items-center justify-center py-12">
@@ -161,7 +164,7 @@ export default function SupplyModal({
               <div className="flex items-start justify-between">
                 <div>
                   <h2 className="text-xl font-semibold text-white">
-                    Supply {debtTokenName}
+                    Collateralize {collateralTokenName}
                   </h2>
                 </div>
                 <button
@@ -177,9 +180,9 @@ export default function SupplyModal({
             <div className="p-6 space-y-6">
               {/* APY Display */}
               <div className="flex items-center justify-between p-4 bg-surface-hover border border-surface-border rounded-lg">
-                <span className="text-sm text-text-muted">Supply APY</span>
+                <span className="text-sm text-text-muted">Collateral APY</span>
                 <span className="inline-flex items-center px-2 py-0.5 rounded text-sm font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
-                  4.00%
+                  2.50%
                 </span>
               </div>
 
@@ -193,7 +196,7 @@ export default function SupplyModal({
                     <span className="text-red-400 text-xs">Error loading balance</span>
                   ) : (
                     <span className="text-white font-mono">
-                      {formattedBalance} {debtTokenName}
+                      {formattedBalance} {collateralTokenName}
                     </span>
                   )}
                 </div>
@@ -202,7 +205,7 @@ export default function SupplyModal({
               {/* Input Box */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-white">
-                  Amount to Supply
+                  Amount to Collateralize
                 </label>
                 <div className="relative">
                   <input
@@ -220,17 +223,17 @@ export default function SupplyModal({
                   </button>
                 </div>
                 <div className="text-xs text-text-muted">
-                  {debtTokenName}
+                  {collateralTokenName}
                 </div>
               </div>
 
-              {/* Supply Button */}
+              {/* Collateralize Button */}
               <button
-                onClick={handleSupply}
+                onClick={handleCollateralize}
                 disabled={!isValidInput}
                 className="w-full px-4 py-3 bg-brand-purple hover:bg-brand-purple-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-brand-purple"
               >
-                Supply {debtTokenName}
+                Collateralize {collateralTokenName}
               </button>
             </div>
           </>

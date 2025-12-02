@@ -2,9 +2,11 @@ import { AztecAddress } from "@aztec/aztec.js/addresses";
 import { BaseWallet } from "@aztec/aztec.js/wallet";
 import { MockPriceFeedContract } from "@nocom-v1/contracts/artifacts";
 import { BatchCall } from "@aztec/aztec.js/contracts";
+import { simulationQueue } from "../utils/simulationQueue";
 
 /**
  * Fetch prices for tokens from the oracle contract
+ * Uses a queue to prevent concurrent IndexedDB access which causes TransactionInactiveError
  *
  * @param tokenAddresses - Array of token addresses to fetch prices for (max 20)
  * @param oracleContract - Instance of the MockPriceFeedContract
@@ -27,11 +29,16 @@ export async function batchSimulatePrices(
   for (let i = 0; i < tokenAddresses.length; i += chunkSize)
     chunkedAddresses.push(tokenAddresses.slice(i, i + chunkSize));
 
-  // Simulate oracle calls to get prices
-  const calls = chunkedAddresses.map(addressChunk =>
-    oracleContract.methods.get_prices(addressChunk)
-  );
-  const batchResult = await new BatchCall(wallet, calls).simulate({ from });
+  // Queue the simulation to prevent concurrent IndexedDB access
+  const batchResult = await simulationQueue.enqueue(async () => {
+    console.log('[batchSimulatePrices] Starting simulation for', tokenAddresses.length, 'tokens');
+    const calls = chunkedAddresses.map(addressChunk =>
+      oracleContract.methods.get_prices(addressChunk)
+    );
+    const result = await new BatchCall(wallet, calls).simulate({ from });
+    console.log('[batchSimulatePrices] Simulation completed');
+    return result;
+  });
 
   // parse results
   const flatResults: bigint[] = [];

@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import SupplyModal from './SupplyModal';
 import BorrowModal from './BorrowModal';
+import CollateralizeModal from './CollateralizeModal';
 
 function calculateUtilization(supplied: bigint, borrowed: bigint): number {
   if (supplied === 0n) return 0;
@@ -34,6 +35,7 @@ export default function MarketTable() {
   const { contracts, wallet: walletHandle, activeAccount } = useWallet();
   const [supplyModalOpen, setSupplyModalOpen] = useState(false);
   const [borrowModalOpen, setBorrowModalOpen] = useState(false);
+  const [collateralizeModalOpen, setCollateralizeModalOpen] = useState(false);
   const [selectedMarket, setSelectedMarket] = useState<MarketWithContract | null>(null);
 
   // Extract wallet instance and address
@@ -127,6 +129,11 @@ export default function MarketTable() {
   const handleBorrowClick = (market: MarketWithContract) => {
     setSelectedMarket(market);
     setBorrowModalOpen(true);
+  };
+
+  const handleCollateralizeClick = (market: MarketWithContract) => {
+    setSelectedMarket(market);
+    setCollateralizeModalOpen(true);
   };
 
   return (
@@ -269,6 +276,12 @@ export default function MarketTable() {
                         Supply
                       </button>
                       <button
+                        onClick={() => handleCollateralizeClick(market)}
+                        className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
+                      >
+                        Collateralize
+                      </button>
+                      <button
                         onClick={() => handleBorrowClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
                       >
@@ -305,6 +318,19 @@ export default function MarketTable() {
             debtTokenName={selectedMarket.loanAsset}
             tokenContract={
               selectedMarket.loanAsset === 'USDC'
+                ? contracts.tokens.usdc
+                : contracts.tokens.zec
+            }
+            poolContract={selectedMarket.contract}
+            wallet={wallet}
+            userAddress={address}
+          />
+          <CollateralizeModal
+            open={collateralizeModalOpen}
+            onClose={() => setCollateralizeModalOpen(false)}
+            collateralTokenName={selectedMarket.collateralAsset}
+            tokenContract={
+              selectedMarket.collateralAsset === 'USDC'
                 ? contracts.tokens.usdc
                 : contracts.tokens.zec
             }

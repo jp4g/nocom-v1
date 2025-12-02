@@ -151,14 +151,24 @@ export function usePriceOracle(
 
   // Initial fetch and setup auto-refresh
   useEffect(() => {
+    // Only fetch if we have the required dependencies
+    if (!oracleContract || !wallet || !from) {
+      console.log('[usePriceOracle] Skipping initial fetch - dependencies not ready');
+      return;
+    }
+
+    console.log('[usePriceOracle] Setting up price polling');
     fetchPrices();
 
     const interval = setInterval(() => {
       fetchPrices();
     }, REFRESH_INTERVAL);
 
-    return () => clearInterval(interval);
-  }, [fetchPrices]);
+    return () => {
+      console.log('[usePriceOracle] Cleaning up price polling');
+      clearInterval(interval);
+    };
+  }, [fetchPrices, oracleContract, wallet, from]);
 
   return {
     prices,

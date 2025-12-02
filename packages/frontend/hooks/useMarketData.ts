@@ -111,11 +111,6 @@ export function useMarketData(
             });
             return newMarkets;
           });
-
-          // Add small delay between batches to reduce IndexedDB transaction contention
-          if (i < batches.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
         } catch (error) {
           console.error('[useMarketData] Batch error:', error);
           // Mark all markets in failed batch as error
