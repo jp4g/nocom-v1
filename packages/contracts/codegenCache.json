@@ -5,7 +5,7 @@
   },
   "nocom_lending_pool-NocomLendingPoolV1.json": {
     "contractName": "NocomLendingPoolV1",
-    "hash": "4c54bff2b02bafbe950841a7ba336d827ca2a78a6503200600c7f2f55486010f"
+    "hash": "2143471d885ccc7f20c8245c9cdba33f62d76446ee695add2b0999ce0da0fcc1"
   },
   "nocom_mock_price_oracle-MockPriceFeed.json": {
     "contractName": "MockPriceFeed",
