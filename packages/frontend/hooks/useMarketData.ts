@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { Market, MarketDataState, AggregateMarketData } from '@/lib/types';
@@ -40,32 +40,35 @@ export function useMarketData(
   from: AztecAddress | undefined
 ): UseMarketDataReturn {
   const [markets, setMarkets] = useState<Map<string, MarketDataState>>(
-    () => new Map(
-      marketConfigs.map(config => [
-        config.poolAddress,
-        { status: 'loading' as const }
-      ])
-    )
+    () => {
+      const initialMap = new Map(
+        marketConfigs.map(config => [
+          config.poolAddress,
+          { status: 'loading' as const }
+        ])
+      );
+      return initialMap;
+    }
   );
 
   const [aggregates, setAggregates] = useState<AggregateMarketData>({
     status: 'loading',
   });
 
-  const fetchMarketData = useCallback(async () => {
-    console.log('[useMarketData] fetchMarketData called', {
-      hasWallet: !!wallet,
-      hasFrom: !!from,
-      marketCount: marketConfigs.length
-    });
+  // Track if we're already fetching to prevent duplicate calls
+  const isFetchingRef = useRef(false);
 
-    // Don't fetch if we don't have the required wallet/address
-    if (!wallet || !from) {
-      console.log('[useMarketData] Skipping fetch - missing wallet or from address');
+  const fetchMarketData = useCallback(async () => {
+    if (isFetchingRef.current) {
       return;
     }
 
-    console.log('[useMarketData] Starting market data fetch');
+    // Don't fetch if we don't have the required wallet/address
+    if (!wallet || !from) {
+      return;
+    }
+
+    isFetchingRef.current = true;
 
     // Reset all markets to loading state
     setMarkets(new Map(
@@ -88,16 +91,15 @@ export function useMarketData(
       // Process each batch
       for (const batch of batches) {
         try {
-          console.log('[useMarketData] Processing batch of', batch.length, 'markets');
           const poolContracts = batch.map(config => config.contract);
           const batchResults = await batchSimulateUtilization(poolContracts, wallet, from);
-          console.log('[useMarketData] Batch results received:', batchResults.size);
 
           // Update state for each market in the batch
           setMarkets(prevMarkets => {
             const newMarkets = new Map(prevMarkets);
             batchResults.forEach((data, poolAddress) => {
-              newMarkets.set(poolAddress.toString(), {
+              const key = poolAddress.toString();
+              newMarkets.set(key, {
                 status: 'loaded',
                 data,
               });
@@ -150,10 +152,10 @@ export function useMarketData(
 
         return currentMarkets;
       });
-
-      console.log('[useMarketData] Market data fetch complete');
     } catch (error) {
       console.error('[useMarketData] Error fetching market data:', error);
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [marketConfigs, wallet, from]);
 

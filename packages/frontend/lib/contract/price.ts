@@ -39,5 +39,6 @@ export async function batchSimulatePrices(
   for (let i = 0; i < tokenAddresses.length; i++)
     result.set(tokenAddresses[i], flatResults[i]);
 
+  console.log("PRICE RESULT:", result)
   return result;
 }

@@ -6,21 +6,50 @@ import { useMarketData, MarketWithContract } from '@/hooks/useMarketData';
 import { useWallet } from '@/hooks/useWallet';
 import { Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+
+// Scale token amounts from 18 decimals to regular numbers
+function scaleTokenAmount(amount: bigint): number {
+  return Number(amount) / 1e18;
+}
 
 export default function StatsBar() {
-  const { contracts, wallet, address } = useWallet();
+  const { contracts, wallet: walletHandle, activeAccount } = useWallet();
+
+  // Extract wallet instance and address
+  const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
+  const address = useMemo(() =>
+    activeAccount?.address ? AztecAddress.fromString(activeAccount.address) : undefined,
+    [activeAccount?.address]
+  );
 
   // Build market configs with contract instances
-  const marketConfigs: MarketWithContract[] = useMemo(() => {
+  const marketConfigs = useMemo(() => {
     if (!contracts) return [];
 
     return [
       {
-        ...MARKET_DATA[0],
+        id: contracts.pools.usdcToZec.address.toString(),
+        loanAsset: 'USDC',
+        collateralAsset: 'ZEC',
+        poolAddress: contracts.pools.usdcToZec.address.toString(),
+        supplyApy: 4.00,
+        borrowApy: 5.00,
+        totalSupply: 0,
+        totalBorrow: 0,
+        utilization: 0,
         contract: contracts.pools.usdcToZec,
       },
       {
-        ...MARKET_DATA[1],
+        id: contracts.pools.zecToUsdc.address.toString(),
+        loanAsset: 'ZEC',
+        collateralAsset: 'USDC',
+        poolAddress: contracts.pools.zecToUsdc.address.toString(),
+        supplyApy: 4.00,
+        borrowApy: 5.00,
+        totalSupply: 0,
+        totalBorrow: 0,
+        utilization: 0,
         contract: contracts.pools.zecToUsdc,
       }
     ];
@@ -37,7 +66,7 @@ export default function StatsBar() {
             <Loader2 className="w-6 h-6 animate-spin" />
           )}
           {aggregates.status === 'loaded' && aggregates.totalSupplied !== undefined && (
-            formatCurrency(Number(aggregates.totalSupplied))
+            formatCurrency(scaleTokenAmount(aggregates.totalSupplied))
           )}
         </div>
       </div>
@@ -48,7 +77,7 @@ export default function StatsBar() {
             <Loader2 className="w-6 h-6 animate-spin" />
           )}
           {aggregates.status === 'loaded' && aggregates.totalBorrowed !== undefined && (
-            formatCurrency(Number(aggregates.totalBorrowed))
+            formatCurrency(scaleTokenAmount(aggregates.totalBorrowed))
           )}
         </div>
       </div>

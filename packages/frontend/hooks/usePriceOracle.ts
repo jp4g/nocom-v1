@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { batchSimulatePrices } from '@/lib/contract/price';
 import { MockPriceFeedContract } from '@nocom-v1/contracts/artifacts';
@@ -59,7 +59,15 @@ export function usePriceOracle(
 
   const [isLoading, setIsLoading] = useState(true);
 
+  // Track if we're already fetching to prevent duplicate calls
+  const isFetchingRef = useRef(false);
+
   const fetchPrices = useCallback(async () => {
+    if (isFetchingRef.current) {
+      console.log('[usePriceOracle] Skipping - already fetching');
+      return;
+    }
+
     console.log('[usePriceOracle] fetchPrices called', {
       hasOracle: !!oracleContract,
       hasWallet: !!wallet,
@@ -75,6 +83,7 @@ export function usePriceOracle(
     }
 
     console.log('[usePriceOracle] Starting price fetch');
+    isFetchingRef.current = true;
     setIsLoading(true);
 
     // Reset all prices to loading state
@@ -133,6 +142,8 @@ export function usePriceOracle(
     } catch (error) {
       console.error('[usePriceOracle] Error fetching prices:', error);
       setIsLoading(false);
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [tokens, oracleContract, wallet, from]);
 

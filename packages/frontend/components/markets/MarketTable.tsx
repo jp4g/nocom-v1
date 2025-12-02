@@ -7,6 +7,7 @@ import Image from 'next/image';
 import { useMarketData, MarketWithContract } from '@/hooks/useMarketData';
 import { useWallet } from '@/hooks/useWallet';
 import { useMemo } from 'react';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
 
 function handleAction(action: string, asset: string) {
   console.log(`${action} clicked for ${asset}`);
@@ -17,26 +18,55 @@ function calculateUtilization(supplied: bigint, borrowed: bigint): number {
   return Number((borrowed * 100n) / supplied);
 }
 
+// Scale token amounts from 18 decimals to regular numbers
+function scaleTokenAmount(amount: bigint): number {
+  return Number(amount) / 1e18;
+}
+
 export default function MarketTable() {
-  const { contracts, wallet, address } = useWallet();
+  const { contracts, wallet: walletHandle, activeAccount } = useWallet();
+
+  // Extract wallet instance and address
+  const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
+  const address = useMemo(() =>
+    activeAccount?.address ? AztecAddress.fromString(activeAccount.address) : undefined,
+    [activeAccount?.address]
+  );
 
   // Build market configs with contract instances
-  const marketConfigs: MarketWithContract[] = useMemo(() => {
+  const marketConfigs = useMemo(() => {
     if (!contracts) return [];
 
     return [
       {
-        ...MARKET_DATA[0],
+        id: contracts.pools.usdcToZec.address.toString(),
+        loanAsset: 'USDC',
+        collateralAsset: 'ZEC',
+        poolAddress: contracts.pools.usdcToZec.address.toString(),
+        supplyApy: 4.00,
+        borrowApy: 5.00,
+        totalSupply: 0, // Will be filled by useMarketData
+        totalBorrow: 0, // Will be filled by useMarketData
+        utilization: 0, // Will be calculated from fetched data
         contract: contracts.pools.usdcToZec,
       },
       {
-        ...MARKET_DATA[1],
+        id: contracts.pools.zecToUsdc.address.toString(),
+        loanAsset: 'ZEC',
+        collateralAsset: 'USDC',
+        poolAddress: contracts.pools.zecToUsdc.address.toString(),
+        supplyApy: 4.00,
+        borrowApy: 5.00,
+        totalSupply: 0, // Will be filled by useMarketData
+        totalBorrow: 0, // Will be filled by useMarketData
+        utilization: 0, // Will be calculated from fetched data
         contract: contracts.pools.zecToUsdc,
       }
     ];
   }, [contracts]);
 
   const { markets } = useMarketData(marketConfigs, wallet, address);
+
   return (
     <>
       <div className="w-full overflow-x-auto rounded-xl border border-surface-border bg-surface">
@@ -57,8 +87,9 @@ export default function MarketTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border text-sm">
-            {MARKET_DATA.map((market) => {
+            {marketConfigs.map((market) => {
               const marketData = markets.get(market.poolAddress);
+
               const utilization = marketData?.status === 'loaded' && marketData.data
                 ? calculateUtilization(marketData.data.totalSupplied, marketData.data.totalBorrowed)
                 : 0;
@@ -106,7 +137,7 @@ export default function MarketTable() {
                       <Loader2 className="w-4 h-4 animate-spin inline-block" />
                     )}
                     {marketData?.status === 'loaded' && marketData.data && (
-                      formatCurrency(Number(marketData.data.totalSupplied))
+                      formatCurrency(scaleTokenAmount(marketData.data.totalSupplied))
                     )}
                     {marketData?.status === 'error' && (
                       <span className="text-red-400">Error</span>
@@ -117,7 +148,7 @@ export default function MarketTable() {
                       <Loader2 className="w-4 h-4 animate-spin inline-block" />
                     )}
                     {marketData?.status === 'loaded' && marketData.data && (
-                      formatCurrency(Number(marketData.data.totalBorrowed))
+                      formatCurrency(scaleTokenAmount(marketData.data.totalBorrowed))
                     )}
                     {marketData?.status === 'error' && (
                       <span className="text-red-400">Error</span>
@@ -166,7 +197,7 @@ export default function MarketTable() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between mt-6 text-sm text-text-muted">
-        <span>Showing 1 to {MARKET_DATA.length} of {MARKET_DATA.length} markets</span>
+        <span>Showing 1 to {marketConfigs.length} of {marketConfigs.length} markets</span>
         <div className="flex gap-2">
           <button className="w-8 h-8 rounded border border-surface-border flex items-center justify-center hover:bg-surface-hover hover:text-white disabled:opacity-50" disabled>
             <ArrowDown className="w-4 h-4 rotate-90" />
