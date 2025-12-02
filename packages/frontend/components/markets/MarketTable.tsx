@@ -129,28 +129,6 @@ export default function MarketTable() {
     setBorrowModalOpen(true);
   };
 
-  const handleSupply = async (amount: bigint) => {
-    // Mock supply function - replace with actual contract call
-    console.log('Supplying amount:', amount.toString());
-
-    // Simulate async operation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // TODO: Call actual contract method
-    // await selectedMarket.contract.methods.supply(amount).send();
-  };
-
-  const handleBorrow = async (amount: bigint) => {
-    // Mock borrow function - replace with actual contract call
-    console.log('Borrowing amount:', amount.toString());
-
-    // Simulate async operation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
-    // TODO: Call actual contract method
-    // await selectedMarket.contract.methods.borrow(amount).send();
-  };
-
   return (
     <>
       <div className="w-full overflow-x-auto rounded-xl border border-surface-border bg-surface">
@@ -330,16 +308,15 @@ export default function MarketTable() {
                 ? contracts.tokens.usdc
                 : contracts.tokens.zec
             }
+            poolContract={selectedMarket.contract}
             wallet={wallet}
             userAddress={address}
-            onSupply={handleSupply}
           />
           <BorrowModal
             open={borrowModalOpen}
             onClose={() => setBorrowModalOpen(false)}
             debtTokenName={selectedMarket.loanAsset}
             availableToBorrow={500000000000000000n} // Mock: 0.5 token
-            onBorrow={handleBorrow}
           />
         </>
       )}

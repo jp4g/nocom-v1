@@ -6,17 +6,18 @@ import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
-import { TokenContract } from '@nocom-v1/contracts/artifacts';
+import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { useSupplyInfo } from '@/hooks/useSupplyInfo';
+import { supplyLiquidity } from '@nocom-v1/contracts/contract';
 
 type SupplyModalProps = {
   open: boolean;
   onClose: () => void;
   debtTokenName: string;
   tokenContract: TokenContract;
+  poolContract: NocomLendingPoolV1Contract;
   wallet: BaseWallet | undefined;
   userAddress: AztecAddress | undefined;
-  onSupply: (amount: bigint) => Promise<void>;
 };
 
 export default function SupplyModal({
@@ -24,9 +25,9 @@ export default function SupplyModal({
   onClose,
   debtTokenName,
   tokenContract,
+  poolContract,
   wallet,
   userAddress,
-  onSupply,
 }: SupplyModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -94,7 +95,7 @@ export default function SupplyModal({
   }, [inputValue, isBalanceLoading, balance]);
 
   const handleSupply = async () => {
-    if (!isValidInput) return;
+    if (!isValidInput || !wallet || !userAddress || !poolContract || !tokenContract) return;
 
     setIsProcessing(true);
 
@@ -103,9 +104,19 @@ export default function SupplyModal({
       const [whole, decimal = ''] = inputValue.split('.');
       const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
       const amount = BigInt(whole + paddedDecimal);
-
-      await onSupply(amount);
-
+      console.log('Supplying amount:', amount.toString());
+      console.log("poolContract:", poolContract.address.toString());
+      console.log("tokenContract:", tokenContract.address.toString());
+      // Call supply function
+      const txReceipt = await supplyLiquidity(
+        wallet,
+        userAddress,
+        poolContract,
+        tokenContract,
+        amount
+      );
+      // return
+      console.log('Supply transaction receipt:', txReceipt);
       toast.success(`Successfully supplied ${inputValue} ${debtTokenName}`);
       onClose();
     } catch (error) {

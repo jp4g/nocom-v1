@@ -10,7 +10,6 @@ type BorrowModalProps = {
   onClose: () => void;
   debtTokenName: string;
   availableToBorrow: bigint;
-  onBorrow: (amount: bigint) => Promise<void>;
 };
 
 export default function BorrowModal({
@@ -18,7 +17,6 @@ export default function BorrowModal({
   onClose,
   debtTokenName,
   availableToBorrow,
-  onBorrow,
 }: BorrowModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -84,7 +82,14 @@ export default function BorrowModal({
       const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
       const amount = BigInt(whole + paddedDecimal);
 
-      await onBorrow(amount);
+      // Mock borrow function - replace with actual contract call
+      console.log('Borrowing amount:', amount.toString());
+
+      // Simulate async operation
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // TODO: Call actual contract method
+      // await poolContract.methods.borrow(amount).send();
 
       toast.success(`Successfully borrowed ${inputValue} ${debtTokenName}`);
       onClose();
