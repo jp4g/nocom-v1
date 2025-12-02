@@ -112,7 +112,7 @@ const defaultPortfolioData: PortfolioData = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export function DataProvider({ children }: PropsWithChildren) {
-  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts } = useWallet();
+  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts, suppliedPools } = useWallet();
 
   const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
   const userAddress = useMemo(() =>
@@ -402,15 +402,20 @@ export function DataProvider({ children }: PropsWithChildren) {
       const collateralPositions: CollateralPosition[] = [];
       const debtPositions: DebtPosition[] = [];
 
-      // Fetch loan positions first (doesn't require escrow)
-      const allMarketContracts = marketConfigs.map(m => m.contract);
-      console.log('[DataContext] Fetching loan positions for', allMarketContracts.length, 'markets');
-      const loanResults = await batchSimulateLoanPosition(
-        allMarketContracts,
-        wallet,
-        userAddress,
-        currentEpoch
-      );
+      // Fetch loan positions only for pools the user has supplied to
+      const marketsWithSupplies = marketConfigs.filter(m => suppliedPools.has(m.poolAddress));
+      const suppliedMarketContracts = marketsWithSupplies.map(m => m.contract);
+      console.log('[DataContext] Fetching loan positions for', suppliedMarketContracts.length, 'supplied pools (out of', marketConfigs.length, 'total)');
+
+      // Only fetch loan positions if user has supplied to any pools
+      const loanResults = suppliedMarketContracts.length > 0
+        ? await batchSimulateLoanPosition(
+            suppliedMarketContracts,
+            wallet,
+            userAddress,
+            currentEpoch
+          )
+        : new Map();
 
       // Map loan results to UI positions
       loanResults.forEach((loanPosition, poolAddress) => {
@@ -552,7 +557,7 @@ export function DataProvider({ children }: PropsWithChildren) {
     } finally {
       isFetchingPortfolioRef.current = false;
     }
-  }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, ensurePricesLoaded]);
+  }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, suppliedPools, ensurePricesLoaded]);
 
   // ==================== Initial fetch for prices and markets (global data) ====================
   // This runs once when wallet is ready. The callbacks check userAddressRef internally.

@@ -374,7 +374,7 @@ pub contract NocomLendingPoolV1 {
             // constrains amount <= total assets claimable
             let new_principal = existing_loan.amount - amount; 
             LoanNote::new(lender, new_principal, existing_loan.epoch)
-        });
+        }).emit(lender, MessageDeliver.CONSTRAINED_ONCHAIN);
 
         // 7. update utilization and take protocol fee
         NocomLendingPoolV1::at(self_address)

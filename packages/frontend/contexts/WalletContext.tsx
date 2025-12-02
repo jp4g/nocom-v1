@@ -21,6 +21,7 @@ import { NocomEscrowV1Contract, NocomEscrowV1ContractArtifact } from '@nocom-v1/
 import { ContractInstanceWithAddressSchema } from '@aztec/stdlib/contract'
 import { simulationQueue } from '@/lib/utils/simulationQueue'
 import { getEscrowMappings } from '@/lib/storage/escrowStorage'
+import { getSuppliedPoolsForUser, addSuppliedPool, isPoolSupplied } from '@/lib/storage/suppliedPoolsStorage'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
 export type WalletProviderType = 'embedded' | 'extension'
@@ -43,7 +44,9 @@ export type WalletContextValue = {
   node?: AztecNode
   contracts?: NocomPublicContracts
   escrowContracts: Map<string, NocomEscrowV1Contract> // Maps debtPool address -> escrow contract
+  suppliedPools: Set<string> // Set of pool addresses the user has supplied to
   registerEscrow: (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => Promise<NocomEscrowV1Contract>
+  trackSuppliedPool: (poolAddress: string) => void // Track a pool the user has supplied to
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
   setActiveAccount: (address: string) => Promise<void>
@@ -104,6 +107,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const [activeAccountState, setActiveAccountState] = useState<WalletAccount | undefined>(undefined)
   const [contracts, setContracts] = useState<NocomPublicContracts | undefined>(undefined)
   const [escrowContracts, setEscrowContracts] = useState<Map<string, NocomEscrowV1Contract>>(new Map())
+  const [suppliedPools, setSuppliedPools] = useState<Set<string>>(new Set())
 
   const walletHandleRef = useRef<WalletHandle | undefined>(undefined)
   const activeAccountRef = useRef<WalletAccount | undefined>(undefined)
@@ -213,6 +217,42 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
   }, [])
 
+  // Load supplied pools from local storage for the current user
+  const loadSuppliedPoolsFromStorage = useCallback((userAddress: string) => {
+    const pools = getSuppliedPoolsForUser(userAddress)
+    console.log('[WalletContext] Loaded', pools.length, 'supplied pools from storage for user:', userAddress)
+    setSuppliedPools(new Set(pools))
+  }, [])
+
+  // Track a new supplied pool (adds to storage and updates state)
+  const trackSuppliedPool = useCallback((poolAddress: string) => {
+    const currentAccount = activeAccountRef.current
+    if (!currentAccount) {
+      console.warn('[WalletContext] Cannot track supplied pool - no active account')
+      return
+    }
+
+    const userAddress = currentAccount.address
+
+    // Check if already tracked
+    if (isPoolSupplied(userAddress, poolAddress)) {
+      console.log('[WalletContext] Pool already tracked:', poolAddress)
+      return
+    }
+
+    // Add to storage
+    addSuppliedPool(userAddress, poolAddress)
+
+    // Update state
+    setSuppliedPools(prev => {
+      const updated = new Set(prev)
+      updated.add(poolAddress)
+      return updated
+    })
+
+    console.log('[WalletContext] Tracked new supplied pool:', poolAddress)
+  }, [])
+
   const disconnect = useCallback(async () => {
     const handle = walletHandleRef.current
     if (handle?.type === 'embedded') {
@@ -233,6 +273,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setActiveAccountInternal(undefined)
     setContracts(undefined)
     setEscrowContracts(new Map())
+    setSuppliedPools(new Set())
   }, [setActiveAccountInternal])
 
   const refreshAccounts = useCallback(async () => {
@@ -305,13 +346,15 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       const nextAccount = accounts.find((account) => account.address === address)
       if (nextAccount) {
         setActiveAccountInternal(nextAccount)
-        // Clear escrow cache when switching accounts since escrows are per-user
+        // Clear caches when switching accounts since they are per-user
         setEscrowContracts(new Map())
-        // Load escrows for the new account
+        setSuppliedPools(new Set())
+        // Load data for the new account
         await loadEscrowsFromStorage(nextAccount.address)
+        loadSuppliedPoolsFromStorage(nextAccount.address)
       }
     },
-    [accounts, setActiveAccountInternal, loadEscrowsFromStorage],
+    [accounts, setActiveAccountInternal, loadEscrowsFromStorage, loadSuppliedPoolsFromStorage],
   )
 
   // Background initialization of sender connections after wallet connects
@@ -325,11 +368,12 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
           setContracts(initializedContracts)
           console.log("Registered all contracts in address book")
 
-          // Load escrows from storage for the active account
+          // Load escrows and supplied pools from storage for the active account
           const currentAccount = activeAccountRef.current
           if (currentAccount) {
-            console.log('[WalletContext] Loading escrows for account:', currentAccount.address)
+            console.log('[WalletContext] Loading escrows and supplied pools for account:', currentAccount.address)
             await loadEscrowsFromStorage(currentAccount.address)
+            loadSuppliedPoolsFromStorage(currentAccount.address)
           }
         } catch (error) {
           console.error('Failed to initialize senders:', error)
@@ -338,7 +382,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
 
     initializeSenders()
-  }, [status, loadEscrowsFromStorage])
+  }, [status, loadEscrowsFromStorage, loadSuppliedPoolsFromStorage])
 
   const value = useMemo<WalletContextValue>(
     () => ({
@@ -350,7 +394,9 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       node,
       contracts,
       escrowContracts,
+      suppliedPools,
       registerEscrow,
+      trackSuppliedPool,
       connect,
       disconnect,
       setActiveAccount,
@@ -363,7 +409,9 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       activeAccountState,
       contracts,
       escrowContracts,
+      suppliedPools,
       registerEscrow,
+      trackSuppliedPool,
       connect,
       disconnect,
       setActiveAccount,

@@ -11,6 +11,7 @@ import { useBalance } from '@/hooks/useBalance';
 import { supplyLiquidity } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { parseTokenAmount } from '@/lib/utils';
+import { useWallet } from '@/hooks/useWallet';
 
 type SupplyModalProps = {
   open: boolean;
@@ -34,6 +35,9 @@ export default function SupplyModal({
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  // Get trackSuppliedPool from wallet context
+  const { trackSuppliedPool } = useWallet();
 
   // Fetch user's balance for this token
   const { balance, isLoading: isBalanceLoading, error: balanceError } = useBalance(
@@ -118,6 +122,10 @@ export default function SupplyModal({
       );
       // return
       console.log('Supply transaction receipt:', txReceipt);
+
+      // Track this pool as one the user has supplied to
+      trackSuppliedPool(poolContract.address.toString());
+
       toast.success(`Successfully supplied ${inputValue} ${debtTokenName}`);
       onClose();
     } catch (error) {
