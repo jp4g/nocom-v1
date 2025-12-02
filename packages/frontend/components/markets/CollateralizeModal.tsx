@@ -12,6 +12,7 @@ import { useEscrow } from '@/hooks/useEscrow';
 import { setEscrowData } from '@/lib/storage/escrowStorage';
 import { deployEscrowContract, depositCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
+import { parseTokenAmount } from '@/lib/utils';
 
 type CollateralizeModalProps = {
   open: boolean;
@@ -176,10 +177,7 @@ export default function CollateralizeModal({
     setIsProcessing(true);
 
     try {
-      // Parse the input value to bigint with 18 decimals
-      const [whole, decimal = ''] = inputValue.split('.');
-      const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
-      const amount = BigInt(whole + paddedDecimal);
+      const amount = parseTokenAmount(inputValue);
 
       // Step 1: Ensure escrow is deployed (returns the contract instance)
       const escrowContractInstance = await ensureEscrowDeployed();

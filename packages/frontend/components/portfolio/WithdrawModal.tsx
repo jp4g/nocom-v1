@@ -4,14 +4,23 @@ import { useEffect, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+import { BaseWallet } from '@aztec/aztec.js/wallet';
+import { NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { LoanPosition } from '@/contexts/DataContext';
 import { MarketUtilization } from '@/lib/types';
+import { parseTokenAmount } from '@/lib/utils';
+import { withdrawLiquidity } from '@nocom-v1/contracts/contract';
+import { simulationQueue } from '@/lib/utils/simulationQueue';
 
 type WithdrawModalProps = {
   open: boolean;
   onClose: () => void;
   loanPosition: LoanPosition | null;
   marketData?: MarketUtilization;
+  poolContract: NocomLendingPoolV1Contract | null;
+  wallet: BaseWallet | undefined;
+  userAddress: AztecAddress | undefined;
 };
 
 export default function WithdrawModal({
@@ -19,6 +28,9 @@ export default function WithdrawModal({
   onClose,
   loanPosition,
   marketData,
+  poolContract,
+  wallet,
+  userAddress,
 }: WithdrawModalProps) {
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -46,9 +58,20 @@ export default function WithdrawModal({
     };
   }, [open]);
 
-  // Format amounts from bigint (18 decimals) to display string
+  // Format amounts from bigint (18 decimals) to display string (6 decimals for display)
   const formatAmount = (amount: bigint): string => {
+    if (amount === 0n) return '< 0.000000';
     return (Number(amount) / 1e18).toFixed(6);
+  };
+
+  // Format full precision for max withdraw (18 decimals)
+  const formatFullPrecision = (amount: bigint): string => {
+    const str = amount.toString().padStart(19, '0'); // ensure at least 19 chars for 18 decimals + 1 digit
+    const whole = str.slice(0, -18) || '0';
+    const decimal = str.slice(-18);
+    // Trim trailing zeros but keep at least one decimal place
+    const trimmedDecimal = decimal.replace(/0+$/, '') || '0';
+    return `${whole}.${trimmedDecimal}`;
   };
 
   const principal = useMemo(() => loanPosition?.balance ?? 0n, [loanPosition?.balance]);
@@ -89,38 +112,36 @@ export default function WithdrawModal({
     if (!inputValue || inputValue === '0' || inputValue === '0.' || inputValue === '.') {
       return false;
     }
-    const numValue = parseFloat(inputValue);
-    if (isNaN(numValue) || numValue <= 0) {
+    try {
+      const amount = parseTokenAmount(inputValue);
+      if (amount <= 0n) return false;
+      if (amount > totalClaimable) return false;
+      if (amount > poolLiquidity) return false;
+      return true;
+    } catch {
       return false;
     }
-    // Check against total claimable
-    const inputInWei = BigInt(Math.floor(numValue * 1e18));
-    if (inputInWei > totalClaimable) {
-      return false;
-    }
-    // Check against pool liquidity
-    if (inputInWei > poolLiquidity) {
-      return false;
-    }
-    return true;
   }, [inputValue, totalClaimable, poolLiquidity]);
 
   const handleWithdraw = async () => {
-    if (!isValidInput) return;
+    if (!isValidInput || !wallet || !userAddress || !poolContract) return;
 
     setIsProcessing(true);
 
     try {
-      // Parse the input value to bigint with 18 decimals
-      const [whole, decimal = ''] = inputValue.split('.');
-      const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
-      const amount = BigInt(whole + paddedDecimal);
-
-      // Mocked withdraw function - replace with actual implementation
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const amount = parseTokenAmount(inputValue);
       console.log('Withdrawing amount:', amount.toString());
 
-      toast.success(`Successfully withdrew ${inputValue} ${loanPosition.symbol}`);
+      const txReceipt = await simulationQueue.enqueue(() =>
+        withdrawLiquidity(
+          userAddress,
+          poolContract,
+          amount
+        )
+      );
+      console.log('Withdraw transaction receipt:', txReceipt);
+
+      toast.success(`Successfully withdrew ${inputValue} ${loanPosition?.symbol}`);
       onClose();
     } catch (error) {
       console.error('Withdraw error:', error);
@@ -134,7 +155,7 @@ export default function WithdrawModal({
   const handleMaxClick = () => {
     // Max is the minimum of total claimable and pool liquidity
     const maxWithdrawable = totalClaimable < poolLiquidity ? totalClaimable : poolLiquidity;
-    setInputValue(formatAmount(maxWithdrawable));
+    setInputValue(formatFullPrecision(maxWithdrawable));
   };
 
   if (!open || !mounted || !loanPosition) return null;
@@ -191,7 +212,7 @@ export default function WithdrawModal({
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-text-muted">Interest Earned</span>
                   <span className="text-green-400 font-mono">
-                    +{formatAmount(interest)} {loanPosition.symbol}
+                    {formatAmount(interest)} {loanPosition.symbol}
                   </span>
                 </div>
                 <div className="border-t border-surface-border pt-3">

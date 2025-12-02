@@ -1,9 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { LoanPosition, PortfolioState, useDataContext } from '@/contexts/DataContext';
+import { useWallet } from '@/contexts/WalletContext';
 import { formatCurrency } from '@/lib/utils';
 import WithdrawModal from './WithdrawModal';
 
@@ -40,7 +43,8 @@ const getAssetColor = (symbol: string) => {
 };
 
 export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTableProps) {
-  const { markets } = useDataContext();
+  const { markets, marketConfigs } = useDataContext();
+  const { wallet, activeAccount } = useWallet();
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<LoanPosition | null>(null);
 
@@ -59,6 +63,19 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
     ? markets.get(selectedPosition.poolAddress)
     : undefined;
 
+  // Get pool contract for the selected position
+  const selectedPoolContract = useMemo(() => {
+    if (!selectedPosition) return null;
+    const marketConfig = marketConfigs.find(m => m.poolAddress === selectedPosition.poolAddress);
+    return marketConfig?.contract ?? null;
+  }, [selectedPosition, marketConfigs]);
+
+  // Get user address as AztecAddress
+  const userAddress = useMemo(() =>
+    activeAccount?.address ? AztecAddress.fromString(activeAccount.address) : undefined,
+    [activeAccount?.address]
+  );
+
   return (
     <>
       <WithdrawModal
@@ -66,6 +83,9 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
         onClose={handleCloseModal}
         loanPosition={selectedPosition}
         marketData={selectedMarketData?.status === 'loaded' ? selectedMarketData.data : undefined}
+        poolContract={selectedPoolContract}
+        wallet={wallet?.instance as BaseWallet | undefined}
+        userAddress={userAddress}
       />
     <section className="bg-surface rounded-xl border border-surface-border flex flex-col overflow-hidden h-full">
       <div className="p-5 border-b border-surface-border flex justify-between items-center bg-surface-card">

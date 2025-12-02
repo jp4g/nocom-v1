@@ -10,6 +10,7 @@ import { TokenContract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/a
 import { useBalance } from '@/hooks/useBalance';
 import { supplyLiquidity } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
+import { parseTokenAmount } from '@/lib/utils';
 
 type SupplyModalProps = {
   open: boolean;
@@ -101,10 +102,7 @@ export default function SupplyModal({
     setIsProcessing(true);
 
     try {
-      // Parse the input value to bigint with 18 decimals
-      const [whole, decimal = ''] = inputValue.split('.');
-      const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
-      const amount = BigInt(whole + paddedDecimal);
+      const amount = parseTokenAmount(inputValue);
       console.log('Supplying amount:', amount.toString());
       console.log("poolContract:", poolContract.address.toString());
       console.log("tokenContract:", tokenContract.address.toString());

@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { parseTokenAmount } from '@/lib/utils';
 
 type BorrowModalProps = {
   open: boolean;
@@ -77,10 +78,7 @@ export default function BorrowModal({
     setIsProcessing(true);
 
     try {
-      // Parse the input value to bigint with 18 decimals
-      const [whole, decimal = ''] = inputValue.split('.');
-      const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
-      const amount = BigInt(whole + paddedDecimal);
+      const amount = parseTokenAmount(inputValue);
 
       // Mock borrow function - replace with actual contract call
       console.log('Borrowing amount:', amount.toString());
