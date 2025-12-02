@@ -31,10 +31,16 @@ export async function batchSimulatePrices(
   const calls = chunkedAddresses.map(addressChunk =>
     oracleContract.methods.get_prices(addressChunk)
   );
-  const batchResult = await new BatchCall(wallet, calls).simulate({ from }) as bigint[][];
+  const batchResult = await new BatchCall(wallet, calls).simulate({ from });
 
-  // Build result map
-  const flatResults = batchResult.flat();
+  // parse results
+  const flatResults: bigint[] = [];
+  for (let i = 0; i < batchResult.length; i++) {
+    const simulationResult = batchResult[i] as { storage: bigint[], len: bigint};
+    for (let j = 0; j < simulationResult.len; j++) {
+      flatResults.push(simulationResult.storage[j]!);
+    }
+  }
   const result = new Map<AztecAddress, bigint>();
   for (let i = 0; i < tokenAddresses.length; i++)
     result.set(tokenAddresses[i], flatResults[i]);

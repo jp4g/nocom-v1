@@ -5,6 +5,7 @@ import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { batchSimulatePrices } from '@/lib/contract/price';
 import { MockPriceFeedContract } from '@nocom-v1/contracts/artifacts';
 import { EmbeddedWallet } from '@/lib/wallet/embeddedWallet';
+import { BaseWallet } from '@aztec/aztec.js/wallet';
 
 const BATCH_SIZE = 8; // Max tokens per batch (will be 64 after oracle update)
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -45,7 +46,7 @@ export interface UsePriceOracleReturn {
 export function usePriceOracle(
   tokens: TokenPrice[],
   oracleContract: MockPriceFeedContract | undefined,
-  wallet: EmbeddedWallet | undefined,
+  wallet: BaseWallet | undefined,
   from: AztecAddress | undefined
 ): UsePriceOracleReturn {
   const [prices, setPrices] = useState<Map<string, PriceState>>(
@@ -108,6 +109,7 @@ export function usePriceOracle(
         try {
           console.log('[usePriceOracle] Processing batch of', batch.length, 'tokens');
           const batchResults = await batchSimulatePrices(batch, oracleContract, wallet, from);
+          console.log("[usePriceOracle]price oracle results: ", batchResults);
           console.log('[usePriceOracle] Batch results received:', batchResults.size);
 
           // Update state for each token in the batch

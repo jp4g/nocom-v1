@@ -29,6 +29,15 @@ export async function batchSimulateUtilization(
       totalSupplied: simulationResult.total_supplied,
       totalBorrowed: simulationResult.total_borrowed,
     };
+
+    console.log('[batchSimulateUtilization] Market data:', {
+      poolAddress: markets[i].address.toString(),
+      totalSupplied: simulationResult.total_supplied.toString(),
+      totalBorrowed: simulationResult.total_borrowed.toString(),
+      totalSuppliedScaled: Number(simulationResult.total_supplied) / 1e18,
+      totalBorrowedScaled: Number(simulationResult.total_borrowed) / 1e18,
+    });
+
     result.set(markets[i].address, utilization);
   }
   return result;

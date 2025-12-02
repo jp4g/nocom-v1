@@ -5,6 +5,7 @@ import { formatCurrency } from '@/lib/utils';
 import { ArrowDown, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 import { useMarketData, MarketWithContract } from '@/hooks/useMarketData';
+import { usePriceOracle } from '@/hooks/usePriceOracle';
 import { useWallet } from '@/hooks/useWallet';
 import { useMemo } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
@@ -23,6 +24,14 @@ function scaleTokenAmount(amount: bigint): number {
   return Number(amount) / 1e18;
 }
 
+// Convert token amount to USD value
+// amount is in 18 decimals, price is in 1e4 scale
+function tokenAmountToUSD(amount: bigint, price: bigint | undefined): number {
+  if (!price) return 0;
+  // amount / 1e18 * price / 1e4 = (amount * price) / 1e22
+  return Number((amount * price)) / 1e22;
+}
+
 export default function MarketTable() {
   const { contracts, wallet: walletHandle, activeAccount } = useWallet();
 
@@ -37,11 +46,11 @@ export default function MarketTable() {
   const marketConfigs = useMemo(() => {
     if (!contracts) return [];
 
-    return [
+    const configs = [
       {
         id: contracts.pools.usdcToZec.address.toString(),
-        loanAsset: 'USDC',
-        collateralAsset: 'ZEC',
+        loanAsset: 'ZEC', // This pool holds ZEC (zecDebtPool)
+        collateralAsset: 'USDC',
         poolAddress: contracts.pools.usdcToZec.address.toString(),
         supplyApy: 4.00,
         borrowApy: 5.00,
@@ -52,8 +61,8 @@ export default function MarketTable() {
       },
       {
         id: contracts.pools.zecToUsdc.address.toString(),
-        loanAsset: 'ZEC',
-        collateralAsset: 'USDC',
+        loanAsset: 'USDC', // This pool holds USDC (usdcDebtPool)
+        collateralAsset: 'ZEC',
         poolAddress: contracts.pools.zecToUsdc.address.toString(),
         supplyApy: 4.00,
         borrowApy: 5.00,
@@ -63,9 +72,49 @@ export default function MarketTable() {
         contract: contracts.pools.zecToUsdc,
       }
     ];
+
+    console.log('[MarketTable] Market configurations:', configs.map(c => ({
+      loanAsset: c.loanAsset,
+      collateralAsset: c.collateralAsset,
+      poolAddress: c.poolAddress,
+    })));
+
+    // Log the actual pool mapping
+    if (contracts) {
+      console.log('[MarketTable] Pool address mapping:', {
+        'contracts.pools.usdcToZec': contracts.pools.usdcToZec.address.toString(),
+        'contracts.pools.zecToUsdc': contracts.pools.zecToUsdc.address.toString(),
+        'USDC token': contracts.tokens.usdc.address.toString(),
+        'ZEC token': contracts.tokens.zec.address.toString(),
+      });
+    }
+
+    return configs;
   }, [contracts]);
 
+  // Fetch token prices
+  const tokenPrices = useMemo(() => {
+    if (!contracts) return [];
+    return [
+      { address: contracts.tokens.usdc.address, symbol: 'USDC' },
+      { address: contracts.tokens.zec.address, symbol: 'ZEC' },
+    ];
+  }, [contracts]);
+
+  const { prices } = usePriceOracle(
+    tokenPrices,
+    contracts?.oracle,
+    wallet,
+    address
+  );
+
   const { markets } = useMarketData(marketConfigs, wallet, address);
+
+  // Log prices when they load
+  console.log('[MarketTable] Token prices:', {
+    USDC: prices.get(tokenPrices[0]?.address.toString())?.price?.toString(),
+    ZEC: prices.get(tokenPrices[1]?.address.toString())?.price?.toString(),
+  });
 
   return (
     <>
@@ -93,6 +142,32 @@ export default function MarketTable() {
               const utilization = marketData?.status === 'loaded' && marketData.data
                 ? calculateUtilization(marketData.data.totalSupplied, marketData.data.totalBorrowed)
                 : 0;
+
+              // Get the token address for this market's loan asset
+              const loanTokenAddress = market.loanAsset === 'USDC'
+                ? contracts?.tokens.usdc.address.toString()
+                : contracts?.tokens.zec.address.toString();
+
+              const tokenPrice = loanTokenAddress ? prices.get(loanTokenAddress)?.price : undefined;
+
+              if (marketData?.status === 'loaded' && marketData.data) {
+                const totalSuppliedUSD = tokenAmountToUSD(marketData.data.totalSupplied, tokenPrice);
+                const totalBorrowedUSD = tokenAmountToUSD(marketData.data.totalBorrowed, tokenPrice);
+
+                console.log(`[MarketTable] Rendering ${market.loanAsset}/${market.collateralAsset}:`, {
+                  poolAddress: market.poolAddress,
+                  loanAsset: market.loanAsset,
+                  tokenAddress: loanTokenAddress,
+                  tokenPrice: tokenPrice?.toString(),
+                  totalSupplied: marketData.data.totalSupplied.toString(),
+                  totalBorrowed: marketData.data.totalBorrowed.toString(),
+                  totalSuppliedScaled: scaleTokenAmount(marketData.data.totalSupplied),
+                  totalBorrowedScaled: scaleTokenAmount(marketData.data.totalBorrowed),
+                  totalSuppliedUSD,
+                  totalBorrowedUSD,
+                  utilization: utilization.toFixed(2) + '%',
+                });
+              }
 
               return (
                 <tr key={market.id} className="group hover:bg-surface-hover/50 transition-colors border-b border-surface-border last:border-0">
@@ -137,7 +212,7 @@ export default function MarketTable() {
                       <Loader2 className="w-4 h-4 animate-spin inline-block" />
                     )}
                     {marketData?.status === 'loaded' && marketData.data && (
-                      formatCurrency(scaleTokenAmount(marketData.data.totalSupplied))
+                      formatCurrency(tokenAmountToUSD(marketData.data.totalSupplied, tokenPrice))
                     )}
                     {marketData?.status === 'error' && (
                       <span className="text-red-400">Error</span>
@@ -148,7 +223,7 @@ export default function MarketTable() {
                       <Loader2 className="w-4 h-4 animate-spin inline-block" />
                     )}
                     {marketData?.status === 'loaded' && marketData.data && (
-                      formatCurrency(scaleTokenAmount(marketData.data.totalBorrowed))
+                      formatCurrency(tokenAmountToUSD(marketData.data.totalBorrowed, tokenPrice))
                     )}
                     {marketData?.status === 'error' && (
                       <span className="text-red-400">Error</span>
