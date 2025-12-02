@@ -60,15 +60,18 @@ export function useMarketData(
 
   const fetchMarketData = useCallback(async () => {
     if (isFetchingRef.current) {
+      console.log('[useMarketData] Fetch already in progress, skipping');
       return;
     }
 
     // Don't fetch if we don't have the required wallet/address
     if (!wallet || !from) {
+      console.log('[useMarketData] Wallet or address not available, skipping');
       return;
     }
 
     isFetchingRef.current = true;
+    console.log('[useMarketData] Starting market data fetch');
 
     // Reset all markets to loading state
     setMarkets(new Map(
@@ -88,9 +91,11 @@ export function useMarketData(
         batches.push(marketConfigs.slice(i, i + BATCH_SIZE));
       }
 
-      // Process each batch
-      for (const batch of batches) {
+      // Process each batch sequentially with small delay to avoid IndexedDB contention
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
         try {
+          console.log(`[useMarketData] Processing batch ${i + 1}/${batches.length}`);
           const poolContracts = batch.map(config => config.contract);
           const batchResults = await batchSimulateUtilization(poolContracts, wallet, from);
 
@@ -106,6 +111,11 @@ export function useMarketData(
             });
             return newMarkets;
           });
+
+          // Add small delay between batches to reduce IndexedDB transaction contention
+          if (i < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
         } catch (error) {
           console.error('[useMarketData] Batch error:', error);
           // Mark all markets in failed batch as error
@@ -154,21 +164,46 @@ export function useMarketData(
       });
     } catch (error) {
       console.error('[useMarketData] Error fetching market data:', error);
+      // Set all markets to error state if top-level error
+      setMarkets(prevMarkets => {
+        const newMarkets = new Map(prevMarkets);
+        marketConfigs.forEach(config => {
+          if (newMarkets.get(config.poolAddress)?.status === 'loading') {
+            newMarkets.set(config.poolAddress, {
+              status: 'error',
+              error: error instanceof Error ? error.message : 'Failed to fetch data',
+            });
+          }
+        });
+        return newMarkets;
+      });
+      setAggregates({ status: 'loading' });
     } finally {
       isFetchingRef.current = false;
+      console.log('[useMarketData] Fetch completed');
     }
   }, [marketConfigs, wallet, from]);
 
   // Initial fetch and setup auto-refresh
   useEffect(() => {
+    // Only fetch if we have wallet and address
+    if (!wallet || !from) {
+      console.log('[useMarketData] Skipping initial fetch - wallet or address not ready');
+      return;
+    }
+
+    console.log('[useMarketData] Setting up market data polling');
     fetchMarketData();
 
     const interval = setInterval(() => {
       fetchMarketData();
     }, REFRESH_INTERVAL);
 
-    return () => clearInterval(interval);
-  }, [fetchMarketData]);
+    return () => {
+      console.log('[useMarketData] Cleaning up market data polling');
+      clearInterval(interval);
+    };
+  }, [fetchMarketData, wallet, from]);
 
   return {
     markets,
