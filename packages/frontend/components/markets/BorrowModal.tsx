@@ -206,26 +206,6 @@ export default function BorrowModal({
     }
   }, [inputValue, currentPosition, collateralPrice, debtPrice, maxLtv, currentHealthFactor]);
 
-  // Calculate LTV after borrow
-  const ltvAfterBorrow = useMemo(() => {
-    if (!inputValue || inputValue === '0' || inputValue === '.' || currentPosition.collateral === 0n) {
-      return currentLtvPercent;
-    }
-
-    try {
-      const borrowAmount = parseTokenAmount(inputValue);
-      const newDebt = currentPosition.debt + borrowAmount;
-
-      const collateralValue = (currentPosition.collateral * collateralPrice) / PRICE_BASE;
-      const debtValue = (newDebt * debtPrice) / PRICE_BASE;
-
-      if (collateralValue === 0n) return 0;
-      return Number((debtValue * 10000n) / collateralValue) / 100;
-    } catch {
-      return currentLtvPercent;
-    }
-  }, [inputValue, currentPosition, collateralPrice, debtPrice, currentLtvPercent]);
-
   // Calculate max borrowable amount based on collateral and health factor
   const maxBorrowable = useMemo(() => {
     if (currentPosition.collateral === 0n) return 0n;
@@ -454,11 +434,6 @@ export default function BorrowModal({
                           )}
                         </div>
                       </div>
-                      {inputValue && ltvAfterBorrow !== currentLtvPercent && (
-                        <div className="text-xs text-text-muted mt-2">
-                          LTV after: <span className={ltvAfterBorrow > ltvToPercent(maxLtv) ? 'text-red-400' : 'text-white'}>{ltvAfterBorrow.toFixed(2)}%</span>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>

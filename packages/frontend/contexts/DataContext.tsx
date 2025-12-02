@@ -9,8 +9,11 @@ import { NocomLendingPoolV1Contract, NocomEscrowV1Contract } from '@nocom-v1/con
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
 import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
-import { EPOCH_LENGTH } from '@nocom-v1/contracts/constants';
+import { EPOCH_LENGTH, LTV_BASE, USDC_LTV, ZCASH_LTV } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
+import { math } from '@nocom-v1/contracts/utils';
+
+const { calculateLtvHealth } = math;
 
 const BATCH_SIZE = 4;
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -510,6 +513,30 @@ export function DataProvider({ children }: PropsWithChildren) {
           if (totalDebt > 0n) {
             const debtBalanceUSD = (Number(totalDebt) / 1e18) * loanPrice;
 
+            // Calculate health factor using raw bigint prices
+            const collateralPriceBigint = collateralPriceState?.status === 'loaded' && collateralPriceState.price
+              ? collateralPriceState.price
+              : 10000n; // Default to $1
+            const loanPriceBigint = loanPriceState?.status === 'loaded' && loanPriceState.price
+              ? loanPriceState.price
+              : 10000n; // Default to $1
+
+            // Get max LTV based on collateral asset
+            const maxLtv = marketConfig.collateralAsset.toUpperCase() === 'USDC' ? USDC_LTV : ZCASH_LTV;
+
+            // Calculate health factor
+            let healthFactor = 1;
+            if (contractPosition.collateral > 0n && totalDebt > 0n) {
+              const healthRaw = calculateLtvHealth(
+                loanPriceBigint,
+                totalDebt,
+                collateralPriceBigint,
+                contractPosition.collateral,
+                maxLtv
+              );
+              healthFactor = Number(healthRaw) / Number(LTV_BASE);
+            }
+
             debtPositions.push({
               symbol: marketConfig.loanAsset.toUpperCase(),
               loanAsset: marketConfig.loanAsset.toLowerCase(),
@@ -518,7 +545,7 @@ export function DataProvider({ children }: PropsWithChildren) {
               balanceUSD: debtBalanceUSD,
               poolAddress: marketConfig.poolAddress,
               apy: DEBT_APY,
-              healthFactor: 1, // Hardcoded for now
+              healthFactor,
             });
           }
         });
