@@ -154,8 +154,11 @@ export default function CollateralizeModal({
 
     console.log('[CollateralizeModal] Escrow registered with API');
 
-    // Step 3: Store in local storage
-    setEscrowAddress(poolContract.address.toString(), escrowAddress);
+    // Step 3: Store in local storage (per-user)
+    if (!userAddress) {
+      throw new Error('User address not available');
+    }
+    setEscrowAddress(userAddress.toString(), poolContract.address.toString(), escrowAddress);
     console.log('[CollateralizeModal] Escrow stored in local storage');
 
     // Step 4: Refetch to update the cache and return the contract

@@ -1,18 +1,23 @@
 /**
  * Local storage utility for managing escrow contract address mappings.
- * Maps debtPool contract addresses to their corresponding escrow contract addresses.
+ * Maps userAddress -> debtPoolAddress -> escrowAddress.
+ * This allows different users to have their own escrow contracts per market.
  */
 
 const ESCROW_STORAGE_KEY = 'nocom_escrow_mappings';
 
-export interface EscrowMapping {
+export interface UserEscrowMapping {
   [debtPoolAddress: string]: string; // debtPoolAddress -> escrowAddress
+}
+
+export interface EscrowStorage {
+  [userAddress: string]: UserEscrowMapping; // userAddress -> mapping
 }
 
 /**
  * Get all escrow mappings from local storage
  */
-export function getEscrowMappings(): EscrowMapping {
+export function getAllEscrowMappings(): EscrowStorage {
   if (typeof window === 'undefined') return {};
 
   try {
@@ -26,24 +31,35 @@ export function getEscrowMappings(): EscrowMapping {
 }
 
 /**
- * Get escrow address for a specific debt pool
+ * Get escrow mappings for a specific user
  */
-export function getEscrowAddress(debtPoolAddress: string): string | undefined {
-  const mappings = getEscrowMappings();
-  return mappings[debtPoolAddress];
+export function getEscrowMappings(userAddress: string): UserEscrowMapping {
+  const allMappings = getAllEscrowMappings();
+  return allMappings[userAddress] ?? {};
 }
 
 /**
- * Store a new escrow mapping
+ * Get escrow address for a specific user and debt pool
  */
-export function setEscrowAddress(debtPoolAddress: string, escrowAddress: string): void {
+export function getEscrowAddress(userAddress: string, debtPoolAddress: string): string | undefined {
+  const userMappings = getEscrowMappings(userAddress);
+  return userMappings[debtPoolAddress];
+}
+
+/**
+ * Store a new escrow mapping for a user
+ */
+export function setEscrowAddress(userAddress: string, debtPoolAddress: string, escrowAddress: string): void {
   if (typeof window === 'undefined') return;
 
   try {
-    const mappings = getEscrowMappings();
-    mappings[debtPoolAddress] = escrowAddress;
-    localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(mappings));
-    console.log('[escrowStorage] Stored escrow mapping:', { debtPoolAddress, escrowAddress });
+    const allMappings = getAllEscrowMappings();
+    if (!allMappings[userAddress]) {
+      allMappings[userAddress] = {};
+    }
+    allMappings[userAddress][debtPoolAddress] = escrowAddress;
+    localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(allMappings));
+    console.log('[escrowStorage] Stored escrow mapping:', { userAddress, debtPoolAddress, escrowAddress });
   } catch (error) {
     console.error('[escrowStorage] Error storing escrow mapping:', error);
     throw error;
@@ -51,25 +67,47 @@ export function setEscrowAddress(debtPoolAddress: string, escrowAddress: string)
 }
 
 /**
- * Remove an escrow mapping (for testing/cleanup)
+ * Remove an escrow mapping for a user (for testing/cleanup)
  */
-export function removeEscrowAddress(debtPoolAddress: string): void {
+export function removeEscrowAddress(userAddress: string, debtPoolAddress: string): void {
   if (typeof window === 'undefined') return;
 
   try {
-    const mappings = getEscrowMappings();
-    delete mappings[debtPoolAddress];
-    localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(mappings));
-    console.log('[escrowStorage] Removed escrow mapping for:', debtPoolAddress);
+    const allMappings = getAllEscrowMappings();
+    if (allMappings[userAddress]) {
+      delete allMappings[userAddress][debtPoolAddress];
+      // Clean up empty user entries
+      if (Object.keys(allMappings[userAddress]).length === 0) {
+        delete allMappings[userAddress];
+      }
+      localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(allMappings));
+    }
+    console.log('[escrowStorage] Removed escrow mapping for:', { userAddress, debtPoolAddress });
   } catch (error) {
     console.error('[escrowStorage] Error removing escrow mapping:', error);
   }
 }
 
 /**
+ * Clear all escrow mappings for a specific user (for testing/cleanup)
+ */
+export function clearUserEscrowMappings(userAddress: string): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    const allMappings = getAllEscrowMappings();
+    delete allMappings[userAddress];
+    localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(allMappings));
+    console.log('[escrowStorage] Cleared escrow mappings for user:', userAddress);
+  } catch (error) {
+    console.error('[escrowStorage] Error clearing user escrow mappings:', error);
+  }
+}
+
+/**
  * Clear all escrow mappings (for testing/cleanup)
  */
-export function clearEscrowMappings(): void {
+export function clearAllEscrowMappings(): void {
   if (typeof window === 'undefined') return;
 
   try {

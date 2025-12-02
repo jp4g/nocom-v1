@@ -17,7 +17,7 @@ export interface UseEscrowReturn {
  *
  * Flow:
  * 1. Check if escrow is already cached in WalletContext
- * 2. If not, check local storage for escrow address
+ * 2. If not, check local storage for escrow address (per-user)
  * 3. If found in storage, register it and cache it
  * 4. If not found, return undefined (requires deployment)
  *
@@ -27,14 +27,15 @@ export interface UseEscrowReturn {
 export function useEscrow(
   debtPoolAddress: string | undefined
 ): UseEscrowReturn {
-  const { escrowContracts, registerEscrow, wallet } = useWallet();
+  const { escrowContracts, registerEscrow, wallet, activeAccount } = useWallet();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | undefined>(undefined);
   const [escrowContract, setEscrowContract] = useState<NocomEscrowV1Contract | undefined>(undefined);
 
   const fetchEscrow = useCallback(async () => {
-    if (!debtPoolAddress) {
+    if (!debtPoolAddress || !activeAccount?.address) {
       setIsLoading(false);
+      setEscrowContract(undefined);
       return;
     }
 
@@ -42,7 +43,7 @@ export function useEscrow(
     setError(undefined);
 
     try {
-      console.log('[useEscrow] Checking for escrow contract:', debtPoolAddress);
+      console.log('[useEscrow] Checking for escrow contract:', { debtPoolAddress, userAddress: activeAccount.address });
 
       // 1. First check if already cached in WalletContext
       const cachedEscrow = escrowContracts.get(debtPoolAddress);
@@ -53,8 +54,8 @@ export function useEscrow(
         return;
       }
 
-      // 2. Check local storage for escrow address
-      const storedEscrowAddress = getEscrowAddress(debtPoolAddress);
+      // 2. Check local storage for escrow address (per-user)
+      const storedEscrowAddress = getEscrowAddress(activeAccount.address, debtPoolAddress);
       if (!storedEscrowAddress) {
         console.log('[useEscrow] No escrow found - deployment required');
         setEscrowContract(undefined);
@@ -80,7 +81,7 @@ export function useEscrow(
     } finally {
       setIsLoading(false);
     }
-  }, [debtPoolAddress, escrowContracts, registerEscrow, wallet]);
+  }, [debtPoolAddress, activeAccount?.address, escrowContracts, registerEscrow, wallet]);
 
   useEffect(() => {
     fetchEscrow();

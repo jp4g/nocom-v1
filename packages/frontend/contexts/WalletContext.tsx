@@ -230,6 +230,8 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       const nextAccount = accounts.find((account) => account.address === address)
       if (nextAccount) {
         setActiveAccountInternal(nextAccount)
+        // Clear escrow cache when switching accounts since escrows are per-user
+        setEscrowContracts(new Map())
       }
     },
     [accounts, setActiveAccountInternal],

@@ -137,6 +137,12 @@ export function DataProvider({ children }: PropsWithChildren) {
   const isFetchingPortfolioRef = useRef(false);
   const hasPortfolioFetchedRef = useRef(false);
 
+  // Ref to access userAddress without creating callback dependencies
+  const userAddressRef = useRef(userAddress);
+  useEffect(() => {
+    userAddressRef.current = userAddress;
+  }, [userAddress]);
+
   // ==================== Configs ====================
   const marketConfigs = useMemo(() => {
     if (!contracts) return [];
@@ -184,7 +190,8 @@ export function DataProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    if (!wallet || !userAddress || !contracts?.oracle || tokenConfigs.length === 0) {
+    const currentUserAddress = userAddressRef.current;
+    if (!wallet || !currentUserAddress || !contracts?.oracle || tokenConfigs.length === 0) {
       console.log('[DataContext] Cannot fetch prices - missing dependencies');
       return;
     }
@@ -194,7 +201,7 @@ export function DataProvider({ children }: PropsWithChildren) {
 
     try {
       const tokenAddresses = tokenConfigs.map(t => t.address);
-      const priceResults = await batchSimulatePrices(tokenAddresses, contracts.oracle, wallet, userAddress);
+      const priceResults = await batchSimulatePrices(tokenAddresses, contracts.oracle, wallet, currentUserAddress);
 
       setPrices(prevPrices => {
         const newPrices = new Map(prevPrices);
@@ -224,7 +231,7 @@ export function DataProvider({ children }: PropsWithChildren) {
     } finally {
       isFetchingPricesRef.current = false;
     }
-  }, [wallet, userAddress, contracts?.oracle, tokenConfigs]);
+  }, [wallet, contracts?.oracle, tokenConfigs]);
 
   // Helper to ensure prices are loaded before proceeding
   const ensurePricesLoaded = useCallback(async () => {
@@ -241,7 +248,8 @@ export function DataProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    if (!wallet || !userAddress || marketConfigs.length === 0) {
+    const currentUserAddress = userAddressRef.current;
+    if (!wallet || !currentUserAddress || marketConfigs.length === 0) {
       console.log('[DataContext] Cannot fetch markets - missing dependencies');
       return;
     }
@@ -276,7 +284,7 @@ export function DataProvider({ children }: PropsWithChildren) {
         try {
           console.log(`[DataContext] Processing market batch ${i + 1}/${batches.length}`);
           const poolContracts = batch.map(config => config.contract);
-          const batchResults = await batchSimulateUtilization(poolContracts, wallet, userAddress);
+          const batchResults = await batchSimulateUtilization(poolContracts, wallet, currentUserAddress);
 
           setMarkets(prevMarkets => {
             const newMarkets = new Map(prevMarkets);
@@ -342,7 +350,7 @@ export function DataProvider({ children }: PropsWithChildren) {
     } finally {
       isFetchingMarketsRef.current = false;
     }
-  }, [marketConfigs, wallet, userAddress, ensurePricesLoaded]);
+  }, [marketConfigs, wallet, ensurePricesLoaded]);
 
   // ==================== Portfolio Fetching ====================
   const fetchPortfolio = useCallback(async () => {
@@ -395,6 +403,8 @@ export function DataProvider({ children }: PropsWithChildren) {
 
       // Fetch debt positions if we have any markets with escrows
       if (marketsWithEscrows.length > 0) {
+        console.log("markets", marketsWithEscrows);
+        console.log("escrows", escrowAddresses);
         const positionResults = await batchSimulateDebtPosition(
           marketsWithEscrows,
           escrowAddresses,
@@ -502,36 +512,60 @@ export function DataProvider({ children }: PropsWithChildren) {
     }
   }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, ensurePricesLoaded]);
 
-  // ==================== Initial fetch and auto-refresh ====================
+  // ==================== Initial fetch for prices and markets (global data) ====================
+  // This runs once when wallet is ready. The callbacks check userAddressRef internally.
   useEffect(() => {
-    if (!wallet || !userAddress) {
-      console.log('[DataContext] Skipping initial fetch - wallet or address not ready');
+    if (!wallet) {
+      console.log('[DataContext] Skipping price/market fetch - wallet not ready');
       return;
     }
 
-    console.log('[DataContext] Starting initial data fetch');
+    console.log('[DataContext] Starting price and market data fetch');
 
-    // Fetch prices first, then market and portfolio data
     const initFetch = async () => {
       await fetchPrices();
-      // Fetch both in parallel after prices are loaded
-      await Promise.all([fetchMarkets(), fetchPortfolio()]);
+      await fetchMarkets();
     };
 
     initFetch();
 
     const interval = setInterval(() => {
-      console.log('[DataContext] Auto-refresh triggered');
-      fetchPrices().then(() => {
-        Promise.all([fetchMarkets(), fetchPortfolio()]);
-      });
+      console.log('[DataContext] Auto-refresh for prices and markets');
+      fetchPrices().then(() => fetchMarkets());
     }, REFRESH_INTERVAL);
 
     return () => {
-      console.log('[DataContext] Cleaning up data polling');
+      console.log('[DataContext] Cleaning up price/market polling');
       clearInterval(interval);
     };
-  }, [fetchPrices, fetchMarkets, fetchPortfolio, wallet, userAddress]);
+  }, [fetchPrices, fetchMarkets, wallet]);
+
+  // ==================== Portfolio fetch (user-specific, re-runs on userAddress change) ====================
+  useEffect(() => {
+    if (!wallet || !userAddress || !pricesLoaded) {
+      console.log('[DataContext] Skipping portfolio fetch - dependencies not ready');
+      return;
+    }
+
+    console.log('[DataContext] Fetching portfolio for user:', userAddress.toString());
+
+    // Reset portfolio state when user changes
+    hasPortfolioFetchedRef.current = false;
+    setPortfolioState({ status: 'loading' });
+    setPortfolioData(defaultPortfolioData);
+
+    fetchPortfolio();
+
+    const interval = setInterval(() => {
+      console.log('[DataContext] Auto-refresh for portfolio');
+      fetchPortfolio();
+    }, REFRESH_INTERVAL);
+
+    return () => {
+      console.log('[DataContext] Cleaning up portfolio polling');
+      clearInterval(interval);
+    };
+  }, [fetchPortfolio, wallet, userAddress, pricesLoaded]);
 
   // ==================== Context Value ====================
   const value = useMemo<DataContextValue>(() => ({
