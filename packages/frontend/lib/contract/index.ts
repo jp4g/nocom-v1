@@ -6,9 +6,11 @@ import { ContractInstanceWithAddressSchema } from "@aztec/stdlib/contract";
 import {
     MockPriceFeedContract,
     NocomLendingPoolV1Contract,
+    NocomStablePoolV1Contract,
     TokenContract,
     MockPriceFeedContractArtifact,
     NocomLendingPoolV1ContractArtifact,
+    NocomStablePoolV1ContractArtifact,
     TokenContractArtifact,
 } from "@nocom-v1/contracts/artifacts"
 import { NocomPublicContracts } from "../types";
@@ -35,6 +37,10 @@ export async function registerPublicContracts(
             JSON.parse(deployments.zcash.instance)
         );
         const zecAddress = AztecAddress.fromString(deployments.zcash.address);
+        const zusdInstance = ContractInstanceWithAddressSchema.parse(
+            JSON.parse(deployments.zusd.instance)
+        );
+        const zusdAddress = AztecAddress.fromString(deployments.zusd.address);
         console.log("checking for usdc");
         if (!addressBook.find(({ item }) => item.equals(usdcAddress))) {
             console.log("registering usdc");
@@ -46,6 +52,12 @@ export async function registerPublicContracts(
         if (!addressBook.find(({ item }) => item.equals(zecAddress))) {
             await wallet.registerContract(
                 zecInstance,
+                TokenContractArtifact
+            );
+        }
+        if (!addressBook.find(({ item }) => item.equals(zusdAddress))) {
+            await wallet.registerContract(
+                zusdInstance,
                 TokenContractArtifact
             );
         }
@@ -82,6 +94,19 @@ export async function registerPublicContracts(
                 NocomLendingPoolV1ContractArtifact
             );
         }
+
+        // add stable pools
+        const zecStablePoolInstance = ContractInstanceWithAddressSchema.parse(
+            JSON.parse(deployments.stablePool.instance)
+        );
+        const zecStablePoolAddress = AztecAddress.fromString(deployments.stablePool.address);
+        if (!addressBook.find(({ item }) => item.equals(zecStablePoolAddress))) {
+            await wallet.registerContract(
+                zecStablePoolInstance,
+                NocomStablePoolV1ContractArtifact
+            );
+        }
+
         // return contracts
         console.log("successfully got contracts");
         return {
@@ -89,10 +114,14 @@ export async function registerPublicContracts(
             tokens: {
                 usdc: await TokenContract.at(usdcAddress, wallet),
                 zec: await TokenContract.at(zecAddress, wallet),
+                zusd: await TokenContract.at(zusdAddress, wallet),
             },
             pools: {
                 zecToUsdc: await NocomLendingPoolV1Contract.at(usdcDebtPoolAddress, wallet),
                 usdcToZec: await NocomLendingPoolV1Contract.at(zecDebtPoolAddress, wallet),
+            },
+            stablePools: {
+                zecToZusd: await NocomStablePoolV1Contract.at(zecStablePoolAddress, wallet),
             },
         };
     });

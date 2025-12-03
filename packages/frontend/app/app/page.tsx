@@ -1,8 +1,7 @@
 import MarketsNav from '@/components/shared/MarketsNav';
 import MarketsFooter from '@/components/shared/MarketsFooter';
 import StatsBar from '@/components/markets/StatsBar';
-import Filters from '@/components/markets/Filters';
-import MarketTable from '@/components/markets/MarketTable';
+import MarketsContent from '@/components/markets/MarketsContent';
 
 export default function MarketsPage() {
   return (
@@ -18,9 +17,7 @@ export default function MarketsPage() {
           <StatsBar />
         </div>
 
-        <Filters />
-
-        <MarketTable />
+        <MarketsContent />
       </main>
 
       <MarketsFooter />

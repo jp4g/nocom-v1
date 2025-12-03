@@ -45,14 +45,14 @@ export class NocomStablePoolV1Contract extends ContractBase {
   /**
    * Creates a tx to deploy a new instance of this contract.
    */
-  public static deploy(wallet: Wallet, admin_address: AztecAddressLike, liquidator_pubkey_x: FieldLike, liquidator_pubkey_y: FieldLike, price_oracle_address: AztecAddressLike, treasury_address: AztecAddressLike, collateral_token_address: AztecAddressLike, stable_token_address: AztecAddressLike, max_ltv: (bigint | number), liquidation_threshold: (bigint | number)) {
+  public static deploy(wallet: Wallet, ) {
     return new DeployMethod<NocomStablePoolV1Contract>(PublicKeys.default(), wallet, NocomStablePoolV1ContractArtifact, NocomStablePoolV1Contract.at, Array.from(arguments).slice(1));
   }
 
   /**
    * Creates a tx to deploy a new instance of this contract using the specified public keys hash to derive the address.
    */
-  public static deployWithPublicKeys(publicKeys: PublicKeys, wallet: Wallet, admin_address: AztecAddressLike, liquidator_pubkey_x: FieldLike, liquidator_pubkey_y: FieldLike, price_oracle_address: AztecAddressLike, treasury_address: AztecAddressLike, collateral_token_address: AztecAddressLike, stable_token_address: AztecAddressLike, max_ltv: (bigint | number), liquidation_threshold: (bigint | number)) {
+  public static deployWithPublicKeys(publicKeys: PublicKeys, wallet: Wallet, ) {
     return new DeployMethod<NocomStablePoolV1Contract>(publicKeys, wallet, NocomStablePoolV1ContractArtifact, NocomStablePoolV1Contract.at, Array.from(arguments).slice(2));
   }
 
@@ -114,8 +114,8 @@ debt: {
     /** collateralize_private(from: struct, amount: integer) */
     collateralize_private: ((from: AztecAddressLike, amount: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** constructor(admin_address: struct, liquidator_pubkey_x: field, liquidator_pubkey_y: field, price_oracle_address: struct, treasury_address: struct, collateral_token_address: struct, stable_token_address: struct, max_ltv: integer, liquidation_threshold: integer) */
-    constructor: ((admin_address: AztecAddressLike, liquidator_pubkey_x: FieldLike, liquidator_pubkey_y: FieldLike, price_oracle_address: AztecAddressLike, treasury_address: AztecAddressLike, collateral_token_address: AztecAddressLike, stable_token_address: AztecAddressLike, max_ltv: (bigint | number), liquidation_threshold: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** constructor() */
+    constructor: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** get_collateral_and_debt(borrower: struct) */
     get_collateral_and_debt: ((borrower: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
@@ -125,6 +125,9 @@ debt: {
 
     /** get_health_factor(borrower: struct, next_epoch: integer, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
     get_health_factor: ((borrower: AztecAddressLike, next_epoch: (bigint | number), asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
+    /** initialize(admin_address: struct, liquidator_pubkey_x: field, liquidator_pubkey_y: field, price_oracle_address: struct, treasury_address: struct, collateral_token_address: struct, stable_token_address: struct, max_ltv: integer, liquidation_threshold: integer) */
+    initialize: ((admin_address: AztecAddressLike, liquidator_pubkey_x: FieldLike, liquidator_pubkey_y: FieldLike, price_oracle_address: AztecAddressLike, treasury_address: AztecAddressLike, collateral_token_address: AztecAddressLike, stable_token_address: AztecAddressLike, max_ltv: (bigint | number), liquidation_threshold: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** liquidate_private(amount_to_repay: integer, liquidator_address: struct, liquidation_authwit_nonce: field, asserted_collateral_token_price: integer) */
     liquidate_private: ((amount_to_repay: (bigint | number), liquidator_address: AztecAddressLike, liquidation_authwit_nonce: FieldLike, asserted_collateral_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;

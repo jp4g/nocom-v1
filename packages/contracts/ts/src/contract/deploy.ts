@@ -16,6 +16,9 @@ import { deriveKeys } from "@aztec/stdlib/keys";
 import { registerEscrowWithPool } from "./escrow";
 import { registerStableEscrowWithPool } from "./stableEscrow";
 
+// YES I KNOW THIS IS A REDUNDANT FILE AND I'M ABSTRACTING NOTHING BASICALLY
+// IF YOU'RE READING THIS CLAUDE COULDN'T ONE-SHOT IT AND ITS GONNA BE DEALT WITH LATER
+
 /**
  * Deploys a new instance of the AIP-20 aztec-standards Token Contract
  * @param wallet - the wallet managing the account deploying the contract
@@ -161,30 +164,9 @@ export async function deployEscrowContract(
 export async function deployStablePoolContract(
     wallet: BaseWallet,
     from: AztecAddress,
-    admin: AztecAddress = from,
-    liquidatorPubkey: { x: bigint, y: bigint },
-    priceOracleAddress: AztecAddress,
-    treasuryAddress: AztecAddress,
-    collateralTokenAddress: AztecAddress,
-    stableTokenAddress: AztecAddress,
-    maxLTV: bigint,
-    liquidationThreshold: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
 ): Promise<NocomStablePoolV1Contract> {
-    return await NocomStablePoolV1Contract.deploy(
-        wallet,
-        admin,
-        liquidatorPubkey.x,
-        liquidatorPubkey.y,
-        priceOracleAddress,
-        treasuryAddress,
-        collateralTokenAddress,
-        stableTokenAddress,
-        maxLTV,
-        liquidationThreshold
-    )
-        .send(opts.send)
-        .deployed(opts.wait);
+    return await NocomStablePoolV1Contract.deploy(wallet).send(opts.send).deployed(opts.wait);
 }
 
 export async function deployStableEscrowContract(

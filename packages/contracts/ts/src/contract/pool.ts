@@ -9,6 +9,9 @@ import type { AztecNode } from "@aztec/aztec.js/node";
 import { BORROW_INTEREST, EPOCH_LENGTH, LEND_INTEREST } from "../constants";
 import { calculateInterest } from "../utils/math";
 
+// YES I KNOW THIS IS A REDUNDANT FILE AND I'M ABSTRACTING NOTHING BASICALLY
+// IF YOU'RE READING THIS CLAUDE COULDN'T ONE-SHOT IT AND ITS GONNA BE DEALT WITH LATER
+
 /**
  * Supply liquidity to the lending pool
  * @notice: lending does not require an escrow

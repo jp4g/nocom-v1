@@ -5,6 +5,9 @@ import type { NocomEscrowV1Contract, TokenContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import { privateTransferAuthwit } from "./token";
 
+// YES I KNOW THIS IS A REDUNDANT FILE AND I'M ABSTRACTING NOTHING BASICALLY
+// IF YOU'RE READING THIS CLAUDE COULDN'T ONE-SHOT IT AND ITS GONNA BE DEALT WITH LATER
+
 /**
  * Register the escrow contract with the lending pool
  * @notice: signature is disaled, but this should be called after handshake with liquidator

@@ -3,13 +3,14 @@
 import { formatCurrency } from '@/lib/utils';
 import { ArrowDown, Loader2 } from 'lucide-react';
 import Image from 'next/image';
-import { useDataContext, MarketWithContract } from '@/contexts/DataContext';
+import { useDataContext, MarketWithContract, StableMarketWithContract } from '@/contexts/DataContext';
 import { useWallet } from '@/hooks/useWallet';
 import { useMemo, useState } from 'react';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import SupplyModal from './SupplyModal';
 import BorrowModal from './BorrowModal';
 import CollateralizeModal from './CollateralizeModal';
+import { MarketType } from './MarketsContent';
 
 function calculateUtilization(supplied: bigint, borrowed: bigint): number {
   if (supplied === 0n) return 0;
@@ -24,9 +25,13 @@ function tokenAmountToUSD(amount: bigint, price: bigint | undefined): number {
   return Number((amount * price)) / 1e22;
 }
 
-export default function MarketTable() {
+interface MarketTableProps {
+  marketType: MarketType;
+}
+
+export default function MarketTable({ marketType }: MarketTableProps) {
   const { contracts, wallet: walletHandle, activeAccount } = useWallet();
-  const { markets, prices, marketConfigs } = useDataContext();
+  const { markets, prices, marketConfigs, stableMarkets, stableMarketConfigs } = useDataContext();
 
   const [supplyModalOpen, setSupplyModalOpen] = useState(false);
   const [borrowModalOpen, setBorrowModalOpen] = useState(false);
@@ -39,6 +44,23 @@ export default function MarketTable() {
     activeAccount?.address ? AztecAddress.fromString(activeAccount.address) : undefined,
     [activeAccount?.address]
   );
+
+  // Filter markets based on marketType
+  const filteredDebtMarkets = useMemo(() => {
+    if (marketType === 'debt') {
+      return marketConfigs;
+    }
+    return [];
+  }, [marketType, marketConfigs]);
+
+  const filteredStableMarkets = useMemo(() => {
+    if (marketType === 'stables') {
+      return stableMarketConfigs;
+    }
+    return [];
+  }, [marketType, stableMarketConfigs]);
+
+  const totalFilteredCount = marketType === 'debt' ? filteredDebtMarkets.length : filteredStableMarkets.length;
 
   const handleSupplyClick = (market: MarketWithContract) => {
     setSelectedMarket(market);
@@ -62,20 +84,48 @@ export default function MarketTable() {
           <thead>
             <tr className="border-b border-surface-border text-xs text-text-muted uppercase tracking-wider">
               <th className="py-4 px-6 font-medium">Market Pair</th>
-              <th className="py-4 px-6 font-medium text-right cursor-pointer hover:text-white transition-colors group">
-                Supply APY <ArrowDown className="inline w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" />
-              </th>
+              {marketType === 'debt' && (
+                <th className="py-4 px-6 font-medium text-right cursor-pointer hover:text-white transition-colors group">
+                  Supply APY <ArrowDown className="inline w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" />
+                </th>
+              )}
               <th className="py-4 px-6 font-medium text-right cursor-pointer hover:text-white transition-colors group">
                 Borrow APY <ArrowDown className="inline w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" />
               </th>
               <th className="py-4 px-6 font-medium text-right hidden md:table-cell">Total Supply</th>
-              <th className="py-4 px-6 font-medium text-right hidden md:table-cell">Total Borrow</th>
-              <th className="py-4 px-6 font-medium text-right w-48">Utilization</th>
+              {marketType === 'debt' && (
+                <th className="py-4 px-6 font-medium text-right hidden md:table-cell">Total Borrow</th>
+              )}
+              {marketType === 'debt' && (
+                <th className="py-4 px-6 font-medium text-right w-48">Utilization</th>
+              )}
               <th className="py-4 px-6 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-surface-border text-sm">
-            {marketConfigs.map((market) => {
+            {/* Loading state - show spinner while contracts are loading */}
+            {((marketType === 'debt' && marketConfigs.length === 0) ||
+              (marketType === 'stables' && stableMarketConfigs.length === 0)) && (
+              <tr>
+                <td colSpan={marketType === 'debt' ? 7 : 4} className="py-12 text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-brand-purple mx-auto" />
+                </td>
+              </tr>
+            )}
+            {/* Empty state - show when contracts loaded but no markets */}
+            {totalFilteredCount === 0 &&
+              ((marketType === 'debt' && marketConfigs.length > 0) ||
+               (marketType === 'stables' && stableMarketConfigs.length > 0)) && (
+              <tr>
+                <td colSpan={marketType === 'debt' ? 7 : 4} className="py-12 text-center text-text-muted">
+                  {marketType === 'stables'
+                    ? 'No stable pools available yet. Coming soon!'
+                    : 'No markets available'}
+                </td>
+              </tr>
+            )}
+            {/* Debt Markets */}
+            {filteredDebtMarkets.map((market) => {
               const marketData = markets.get(market.poolAddress);
 
               const utilization = marketData?.status === 'loaded' && marketData.data
@@ -88,7 +138,6 @@ export default function MarketTable() {
                 : contracts?.tokens.zec.address.toString();
 
               const tokenPrice = loanTokenAddress ? prices.get(loanTokenAddress)?.price : undefined;
-
 
               return (
                 <tr key={market.id} className="group hover:bg-surface-hover/50 transition-colors border-b border-surface-border last:border-0">
@@ -121,12 +170,12 @@ export default function MarketTable() {
                     </div>
                   </td>
                   <td className="py-4 px-6 text-right">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
-                      {market.supplyApy.toFixed(2)}%
-                    </span>
+                    <span className="font-mono text-text-muted font-medium">{market.supplyApy.toFixed(2)}%</span>
                   </td>
                   <td className="py-4 px-6 text-right">
-                    <span className="font-mono text-text-muted font-medium">{market.borrowApy.toFixed(2)}%</span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
+                      {market.borrowApy.toFixed(2)}%
+                    </span>
                   </td>
                   <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
                     {marketData?.status === 'loading' && (
@@ -172,7 +221,7 @@ export default function MarketTable() {
                     <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
                         onClick={() => handleSupplyClick(market)}
-                        className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
+                        className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
                       >
                         Supply
                       </button>
@@ -184,7 +233,74 @@ export default function MarketTable() {
                       </button>
                       <button
                         onClick={() => handleBorrowClick(market)}
+                        className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
+                      >
+                        Borrow
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            {/* Stable Markets */}
+            {filteredStableMarkets.map((market) => {
+              const stableMarketData = stableMarkets.get(market.poolAddress);
+
+              return (
+                <tr key={market.id} className="group hover:bg-surface-hover/50 transition-colors border-b border-surface-border last:border-0">
+                  <td className="py-4 px-6">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex -space-x-2">
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
+                          <Image
+                            src={`/icons/${market.stablecoin.toLowerCase()}.svg`}
+                            alt={market.stablecoin}
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
+                          <Image
+                            src={`/icons/${market.collateralAsset.toLowerCase()}.svg`}
+                            alt={market.collateralAsset}
+                            width={32}
+                            height={32}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-medium text-white">{market.stablecoin} / {market.collateralAsset}</div>
+                        <div className="text-xs text-text-muted font-mono">Stablecoin</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
+                      {market.borrowApy.toFixed(2)}%
+                    </span>
+                  </td>
+                  <td className="py-4 px-6 text-right hidden md:table-cell font-mono text-text-muted">
+                    {(!stableMarketData || stableMarketData.status === 'loading') && (
+                      <Loader2 className="w-4 h-4 animate-spin inline-block" />
+                    )}
+                    {stableMarketData?.status === 'loaded' && stableMarketData.data && (
+                      formatCurrency(tokenAmountToUSD(stableMarketData.data.totalSupplied, 10000n)) // zUSD is $1
+                    )}
+                    {stableMarketData?.status === 'error' && (
+                      <span className="text-red-400">Error</span>
+                    )}
+                  </td>
+                  <td className="py-4 px-6 text-right">
+                    <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
                         className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
+                      >
+                        Collateralize
+                      </button>
+                      <button
+                        className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
                       >
                         Borrow
                       </button>
@@ -199,7 +315,7 @@ export default function MarketTable() {
 
       {/* Pagination */}
       <div className="flex items-center justify-between mt-6 text-sm text-text-muted">
-        <span>Showing 1 to {marketConfigs.length} of {marketConfigs.length} markets</span>
+        <span>Showing {totalFilteredCount > 0 ? 1 : 0} to {totalFilteredCount} of {totalFilteredCount} markets</span>
         <div className="flex gap-2">
           <button className="w-8 h-8 rounded border border-surface-border flex items-center justify-center hover:bg-surface-hover hover:text-white disabled:opacity-50" disabled>
             <ArrowDown className="w-4 h-4 rotate-90" />

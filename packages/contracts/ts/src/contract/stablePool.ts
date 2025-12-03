@@ -4,6 +4,11 @@ import type { DebtPosition } from "../types";
 import type { AztecNode } from "@aztec/aztec.js/node";
 import { BORROW_INTEREST, EPOCH_LENGTH } from "../constants";
 import { calculateInterest } from "../utils/math";
+import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
+import type { TxReceipt } from "@aztec/stdlib/tx";
+
+// YES I KNOW THIS IS A REDUNDANT FILE AND I'M ABSTRACTING NOTHING BASICALLY
+// IF YOU'RE READING THIS CLAUDE COULDN'T ONE-SHOT IT AND ITS GONNA BE DEALT WITH LATER
 
 /**
  * Get the debt position for a given borrower from the stable pool.
@@ -45,5 +50,33 @@ export async function getStableDebtPosition(
         BORROW_INTEREST
     );
     return { collateral, startingEpoch: Number(startingEpoch), principal, interest };
+}
+
+export async function initializeStablePoolContract(
+    from: AztecAddress,
+    poolContract: NocomStablePoolV1Contract,
+    admin: AztecAddress = from,
+    liquidatorPubkey: { x: bigint, y: bigint },
+    priceOracleAddress: AztecAddress,
+    treasuryAddress: AztecAddress,
+    collateralTokenAddress: AztecAddress,
+    stableTokenAddress: AztecAddress,
+    maxLTV: bigint,
+    liquidationThreshold: bigint,
+    opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
+): Promise<TxReceipt> {
+    return await poolContract.methods.initialize(
+        admin,
+        liquidatorPubkey.x,
+        liquidatorPubkey.y,
+        priceOracleAddress,
+        treasuryAddress,
+        collateralTokenAddress,
+        stableTokenAddress,
+        maxLTV,
+        liquidationThreshold
+    )
+        .send(opts.send)
+        .wait(opts.wait);
 }
 

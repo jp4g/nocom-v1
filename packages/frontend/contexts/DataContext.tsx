@@ -4,11 +4,12 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, us
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { type AztecNode } from '@aztec/aztec.js/node';
 import { useWallet } from '@/hooks/useWallet';
-import { Market, MarketDataState, AggregateMarketData } from '@/lib/types';
-import { NocomLendingPoolV1Contract, NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
+import { Market, MarketDataState, AggregateMarketData, StableMarket, StableMarketDataState } from '@/lib/types';
+import { NocomLendingPoolV1Contract, NocomEscrowV1Contract, NocomStablePoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
 import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
+import { batchSimulateStableSupply } from '@/lib/contract/stableSupply';
 import { EPOCH_LENGTH, USDC_LTV, ZCASH_LTV, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
 import { math } from '@nocom-v1/contracts/utils';
@@ -39,6 +40,10 @@ export interface PriceState {
 // ==================== Market Types ====================
 export interface MarketWithContract extends Market {
   contract: NocomLendingPoolV1Contract;
+}
+
+export interface StableMarketWithContract extends StableMarket {
+  contract: NocomStablePoolV1Contract;
 }
 
 // ==================== Portfolio Types ====================
@@ -88,10 +93,14 @@ export interface DataContextValue {
   prices: Map<string, PriceState>;
   pricesLoaded: boolean;
 
-  // Market data
+  // Market data (debt pools)
   markets: Map<string, MarketDataState>;
   aggregates: AggregateMarketData;
   marketConfigs: MarketWithContract[];
+
+  // Stable market data
+  stableMarkets: Map<string, StableMarketDataState>;
+  stableMarketConfigs: StableMarketWithContract[];
 
   // Portfolio data
   portfolioState: PortfolioState;
@@ -135,6 +144,11 @@ export function DataProvider({ children }: PropsWithChildren) {
   const [aggregates, setAggregates] = useState<AggregateMarketData>({ status: 'loading' });
   const isFetchingMarketsRef = useRef(false);
   const hasMarketsFetchedRef = useRef(false);
+
+  // ==================== Stable Market State ====================
+  const [stableMarkets, setStableMarkets] = useState<Map<string, StableMarketDataState>>(() => new Map());
+  const isFetchingStableMarketsRef = useRef(false);
+  const hasStableMarketsFetchedRef = useRef(false);
 
   // ==================== Portfolio State ====================
   const [portfolioState, setPortfolioState] = useState<PortfolioState>({ status: 'loading' });
@@ -180,11 +194,29 @@ export function DataProvider({ children }: PropsWithChildren) {
     ];
   }, [contracts]);
 
+  // ==================== Stable Market Configs ====================
+  const stableMarketConfigs = useMemo(() => {
+    if (!contracts) return [];
+
+    return [
+      {
+        id: contracts.stablePools.zecToZusd.address.toString(),
+        stablecoin: 'zUSD',
+        collateralAsset: 'ZEC',
+        poolAddress: contracts.stablePools.zecToZusd.address.toString(),
+        borrowApy: 5.00,
+        totalSupply: 0, // Will be fetched later
+        contract: contracts.stablePools.zecToZusd,
+      }
+    ];
+  }, [contracts]);
+
   const tokenConfigs = useMemo(() => {
     if (!contracts) return [];
     return [
       { address: contracts.tokens.usdc.address, symbol: 'USDC' },
       { address: contracts.tokens.zec.address, symbol: 'ZEC' },
+      { address: contracts.tokens.zusd.address, symbol: 'zUSD' },
     ];
   }, [contracts]);
 
@@ -356,6 +388,77 @@ export function DataProvider({ children }: PropsWithChildren) {
       isFetchingMarketsRef.current = false;
     }
   }, [marketConfigs, wallet, ensurePricesLoaded]);
+
+  // ==================== Stable Market Fetching ====================
+  const fetchStableMarkets = useCallback(async () => {
+    if (isFetchingStableMarketsRef.current) {
+      console.log('[DataContext] Stable market fetch already in progress, skipping');
+      return;
+    }
+
+    const currentUserAddress = userAddressRef.current;
+    if (!wallet || !currentUserAddress || !contracts || stableMarketConfigs.length === 0) {
+      console.log('[DataContext] Cannot fetch stable markets - missing dependencies');
+      return;
+    }
+
+    isFetchingStableMarketsRef.current = true;
+    console.log('[DataContext] Fetching stable market data...');
+
+    // Only show loading state if we haven't fetched before
+    if (!hasStableMarketsFetchedRef.current) {
+      setStableMarkets(new Map(
+        stableMarketConfigs.map(config => [
+          config.poolAddress,
+          { status: 'loading' as const }
+        ])
+      ));
+    }
+
+    try {
+      // Get the stablecoin tokens for each stable pool
+      // For now we have zusd for the zecToZusd pool
+      const stableTokens = [contracts.tokens.zusd];
+
+      const supplyResults = await batchSimulateStableSupply(stableTokens, wallet, currentUserAddress);
+
+      // Map results back to pool addresses
+      // zusd token supply -> zecToZusd pool
+      const zusdSupply = supplyResults.get(contracts.tokens.zusd.address);
+
+      setStableMarkets(prevMarkets => {
+        const newMarkets = new Map(prevMarkets);
+
+        // Map zusd supply to the zecToZusd stable pool
+        const zecToZusdPool = stableMarketConfigs.find(c => c.stablecoin === 'zUSD');
+        if (zecToZusdPool && zusdSupply) {
+          newMarkets.set(zecToZusdPool.poolAddress, {
+            status: 'loaded',
+            data: zusdSupply,
+          });
+        }
+
+        return newMarkets;
+      });
+
+      hasStableMarketsFetchedRef.current = true;
+      console.log('[DataContext] Stable market fetch completed');
+    } catch (error) {
+      console.error('[DataContext] Error fetching stable markets:', error);
+      setStableMarkets(prevMarkets => {
+        const newMarkets = new Map(prevMarkets);
+        stableMarketConfigs.forEach(config => {
+          newMarkets.set(config.poolAddress, {
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Failed to fetch data',
+          });
+        });
+        return newMarkets;
+      });
+    } finally {
+      isFetchingStableMarketsRef.current = false;
+    }
+  }, [stableMarketConfigs, wallet, contracts]);
 
   // ==================== Portfolio Fetching ====================
   const fetchPortfolio = useCallback(async () => {
@@ -605,20 +708,24 @@ export function DataProvider({ children }: PropsWithChildren) {
     const initFetch = async () => {
       await fetchPrices();
       await fetchMarkets();
+      await fetchStableMarkets();
     };
 
     initFetch();
 
     const interval = setInterval(() => {
       console.log('[DataContext] Auto-refresh for prices and markets');
-      fetchPrices().then(() => fetchMarkets());
+      fetchPrices().then(() => {
+        fetchMarkets();
+        fetchStableMarkets();
+      });
     }, REFRESH_INTERVAL);
 
     return () => {
       console.log('[DataContext] Cleaning up price/market polling');
       clearInterval(interval);
     };
-  }, [fetchPrices, fetchMarkets, wallet]);
+  }, [fetchPrices, fetchMarkets, fetchStableMarkets, wallet]);
 
   // ==================== Portfolio fetch (user-specific, re-runs on userAddress change) ====================
   useEffect(() => {
@@ -654,6 +761,8 @@ export function DataProvider({ children }: PropsWithChildren) {
     markets,
     aggregates,
     marketConfigs,
+    stableMarkets,
+    stableMarketConfigs,
     portfolioState,
     portfolioData,
     refetchPrices: fetchPrices,
@@ -665,6 +774,8 @@ export function DataProvider({ children }: PropsWithChildren) {
     markets,
     aggregates,
     marketConfigs,
+    stableMarkets,
+    stableMarketConfigs,
     portfolioState,
     portfolioData,
     fetchPrices,

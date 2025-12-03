@@ -1,20 +1,19 @@
 #!/usr/bin/env bun
 import { dirname, join } from "path";
-import { existsSync, writeFileSync } from "fs";
+import { writeFileSync } from "fs";
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { TestWallet } from "@aztec/test-wallet/server";
 import { getInitialTestAccountsData } from "@aztec/accounts/testing";
-import { deployEscrowContract, deployIsolatedPoolContract, deployPriceOracleContract, deployTokenContract } from "../ts/src/contract/deploy.ts";
+import { deployEscrowContract, deployIsolatedPoolContract, deployPriceOracleContract, deployStableEscrowContract, deployStablePoolContract, deployTokenContract } from "../ts/src/contract/deploy.ts";
 import { TOKEN_METADATA, USDC_LIQUIDATION_THRESHOLD, USDC_LTV, ZCASH_LIQUIDATION_THRESHOLD, ZCASH_LTV } from "../ts/src/constants.ts";
 import { precision } from "../ts/src/utils/index.ts";
 import { updateOraclePrice } from "../ts/src/contract/oracle.ts";
-import { execCommand } from "./utils.ts";
 import { ensureSponsoredFPCDeployed, getFeeJuicePortalManager, getSponsoredFPCInstance, getSponsoredPaymentMethod } from "../ts/src/fees.ts";
-import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import { Fr } from "@aztec/foundation/fields";
 import { supplyLiquidity } from "../ts/src/contract/pool.ts";
 import { borrowFromPool, depositCollateral, registerEscrowWithPool } from "../ts/src/contract/escrow.ts";
-import type { SendInteractionOptions } from "@aztec/aztec.js/contracts";
+import { initializeStablePoolContract } from "../ts/src/contract/stablePool.ts";
+import { depositStableCollateral, mintStable } from "../ts/src/contract/stableEscrow.ts";
 
 const {
     AZTEC_NODE_URL = "http://localhost:8080",
@@ -72,7 +71,7 @@ async function main() {
 
     // must wait two transactions before completing the claim
 
-    // 4. deploy the token contracts
+    // 4. deploy the normal token contracts
     const usdc = await deployTokenContract(wallet, adminAddress, TOKEN_METADATA["usdc"]);
     const zcash = await deployTokenContract(wallet, adminAddress, TOKEN_METADATA["zcash"]);
 
@@ -124,9 +123,33 @@ async function main() {
         USDC_LIQUIDATION_THRESHOLD
     );
 
+    // 9. deploy the stable pool contract
+    let stablePool = await deployStablePoolContract(wallet, adminAddress);
+
+    // 10. deploy the zUSD stable token contract with the stable pool as a minter
+    const zusd = await deployTokenContract(
+        wallet,
+        adminAddress,
+        TOKEN_METADATA["zusd"],
+        stablePool.address
+    );
+
+    // 11. initialize the stable pool contract now that we have the stable token address
+    await initializeStablePoolContract(
+        adminAddress,
+        stablePool,
+        adminAddress,
+        liquidatorPubkey,
+        priceOracle.address,
+        adminAddress,
+        zcash.address,
+        zusd.address,
+        ZCASH_LTV,
+        ZCASH_LIQUIDATION_THRESHOLD
+    );
+
     // 10. if population flag set, populate the market with additional accounts
     if (populateDeployment) {
-        
         // 10b. mint tokens to the population accounts
         console.log("Minting tokens to population accounts...");
         const populationUsdcAmount = precision(50_000_000n);
@@ -172,6 +195,14 @@ async function main() {
             usdc.address,
             true, // auto-register with pool
         );
+        const {contract: zecStableEscrow } = await deployStableEscrowContract(
+            wallet,
+            bobAddress,
+            stablePool.address,
+            zcash.address,
+            zusd.address,
+            true, // auto-register with pool
+        );
 
         // 10e. deposit collateral from the borrower
         console.log("Depositing collateral into escrows from borrower...");
@@ -189,6 +220,13 @@ async function main() {
             zcash,
             precision(10_000n),
         );
+        await depositStableCollateral(
+            wallet,
+            bobAddress,
+            zecStableEscrow,
+            zcash,
+            precision(5_000n),
+        );
 
         // 10f. borrow against the collateral as the borrower
         await borrowFromPool(
@@ -205,6 +243,12 @@ async function main() {
             prices[1]!,
             prices[0]!,
         );
+        await mintStable(
+            bobAddress,
+            zecStableEscrow,
+            precision(1500n),
+            prices[1]!,
+        )
     }
 
     // 11. save the deployed contract addresses to the deployment file
@@ -218,6 +262,10 @@ async function main() {
             address: zcash.address.toString(),
             instance: JSON.stringify(zcash.instance),
         },
+        zusd: {
+            address: zusd.address.toString(),
+            instance: JSON.stringify(zusd.instance),
+        },
         priceOracle: {
             address: priceOracle.address.toString(),
             instance: JSON.stringify(priceOracle.instance),
@@ -229,6 +277,10 @@ async function main() {
         usdcDebtPool: {
             address: usdcDebtPool.address.toString(),
             instance: JSON.stringify(usdcDebtPool.instance),
+        },
+        stablePool: {
+            address: stablePool.address.toString(),
+            instance: JSON.stringify(stablePool.instance),
         },
     };
     writeFileSync(deploymentFilePath, JSON.stringify(deploymentData, null, 2));
@@ -246,9 +298,11 @@ async function main() {
     console.log(`Copied deployment data to frontend at ${frontendPath}`);
     console.log(`NEXT_PUBLIC_USDC_CONTRACT=${usdc.address.toString()}`);
     console.log(`NEXT_PUBLIC_ZCASH_CONTRACT=${zcash.address.toString()}`);
+    console.log(`NEXT_PUBLIC_ZUSD_CONTRACT=${zusd.address.toString()}`);
     console.log(`NEXT_PUBLIC_PRICE_ORACLE_CONTRACT=${priceOracle.address.toString()}`);
     console.log(`NEXT_PUBLIC_ZEC_DEBT_POOL_CONTRACT=${zecDebtPool.address.toString()}`);
     console.log(`NEXT_PUBLIC_USDC_DEBT_POOL_CONTRACT=${usdcDebtPool.address.toString()}`);
+    console.log(`NEXT_PUBLIC_STABLE_POOL_CONTRACT=${stablePool.address.toString()}`);
     console.log("========================================================");
 }
 

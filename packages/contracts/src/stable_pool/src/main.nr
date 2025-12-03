@@ -31,9 +31,15 @@ pub contract NocomStablePoolV1 {
         debt: Map<AztecAddress, PrivateMutable<LoanNote, Context>, Context>,
     }
 
+    #[external("public")]
+    #[initializer]
+    fn constructor() {}
+
     /**
      * Initialize a Nocom Isolated Lending Pool
-     * NOTICE: admin will be used when we update config to be DelayedPublicMutable
+     * notice: use separate initialize so token knows about pool address
+     * todo: get deploy method to determine address and just use constructor
+     *
      * @param admin_address - address of admin who can control contract
      * @param liquidator_pubkey_x - x coordinate of liquidator schnorr pubkey
      * @param liquidator_pubkey_y - y coordinate of liquidator schnorr pubkey
@@ -45,8 +51,7 @@ pub contract NocomStablePoolV1 {
      * @param liquidation_threshold - threshold at which positions can be liquidated
      */
     #[external("public")]
-    #[initializer]
-    fn constructor(
+    fn initialize(
         admin_address: AztecAddress,
         liquidator_pubkey_x: Field,
         liquidator_pubkey_y: Field,

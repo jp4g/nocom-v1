@@ -5,6 +5,9 @@ import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts
 import type { TxReceipt } from "@aztec/stdlib/tx";
 
 
+// YES I KNOW THIS IS A REDUNDANT FILE AND I'M ABSTRACTING NOTHING BASICALLY
+// IF YOU'RE READING THIS CLAUDE COULDN'T ONE-SHOT IT AND ITS GONNA BE DEALT WITH LATER
+
 /**
  * Updates the price oracle for one or more assets
  * @param from - the oracle admin & tx sender

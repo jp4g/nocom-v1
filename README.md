@@ -72,4 +72,7 @@ The following is a list of all the deficiencies in the submitted codebase that I
  - The front end employs a non-negligible amount of hardcoding of assets by assuming there will only be USDC and ZCash debt markets and a single ZCash-collateralized stablecon
  - The front end has not optimized PXE simulation calls which sometimes fire more than they need to, dragging down loading speed. Easy to fix but must be done.
  - The front end employs a mutation of the [EmbeddedWallet](https://github.com/AztecProtocol/aztec-packages/blob/next/playground/src/wallet/embedded_wallet.ts) rather than integrating Obsidion or Azgard wallet. This reflects the sandboxed nature of the application
+ - I am not a front end developer. I know the front end code underneath is spaghetti and I don't have enough time to fix it without breaking things :/
  - The embedded wallet account creation does not hook up to an FPC, and there is no way to export the account keys to fund the account via FeeJuice, so actions are restricted to the preloaded test accounts on sandbox.
+ - The stable pool and debt pool contract separation is immature and can be refined into a much more elegant pattern. The stable pool was admittedly a late afterthought to the core lending market (given the stablecoin is essentially a subset of the functionality of a lending market) and the vast majority of engineering effort went into the lending pool design itself. Still works though
+ - The stable coin needs an Aave GSM style facility to guarantee any liquidity

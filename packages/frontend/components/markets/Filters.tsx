@@ -1,6 +1,14 @@
-import { Search } from 'lucide-react';
+'use client';
 
-export default function Filters() {
+import { Search } from 'lucide-react';
+import { MarketType } from './MarketsContent';
+
+interface FiltersProps {
+  marketType: MarketType;
+  onMarketTypeChange: (type: MarketType) => void;
+}
+
+export default function Filters({ marketType, onMarketTypeChange }: FiltersProps) {
   return (
     <div className="flex items-center gap-4 mb-6">
       <div className="relative flex-1 max-w-sm">
@@ -12,11 +20,25 @@ export default function Filters() {
         />
       </div>
       <div className="flex gap-2">
-        <button className="px-4 py-2.5 rounded-lg bg-surface border border-surface-border text-sm font-medium hover:bg-surface-hover transition-colors text-white">
-          All Assets
+        <button
+          onClick={() => onMarketTypeChange('debt')}
+          className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+            marketType === 'debt'
+              ? 'bg-surface border-surface-border text-white'
+              : 'bg-black border-surface-border text-text-muted hover:bg-surface-hover'
+          }`}
+        >
+          Debt Markets
         </button>
-        <button className="px-4 py-2.5 rounded-lg bg-black border border-surface-border text-sm font-medium hover:bg-surface-hover transition-colors text-text-muted">
-          Stablecoins
+        <button
+          onClick={() => onMarketTypeChange('stables')}
+          className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+            marketType === 'stables'
+              ? 'bg-surface border-surface-border text-white'
+              : 'bg-black border-surface-border text-text-muted hover:bg-surface-hover'
+          }`}
+        >
+          Stables
         </button>
       </div>
     </div>

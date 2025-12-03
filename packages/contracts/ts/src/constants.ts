@@ -33,4 +33,9 @@ export const TOKEN_METADATA = {
         symbol: "USDC",
         decimals: 18,
     },
+    zusd: {
+        name: "Nocom USD",
+        symbol: "ZUSD",
+        decimals: 18,
+    }
 }
