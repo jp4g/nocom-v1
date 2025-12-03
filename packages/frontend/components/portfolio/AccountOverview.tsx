@@ -34,10 +34,11 @@ const getHealthBarPosition = (hf: number) => {
 export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, totalLoansUSD, totalDebtUSD, onRefresh }: AccountOverviewProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Calculate net APY: (loans * loanAPY - debt * debtAPY) / netWorth
-  const netApy = netWorthUSD !== 0
-    ? ((totalLoansUSD * LOAN_APY - totalDebtUSD * DEBT_APY) / netWorthUSD)
-    : 0;
+  // Calculate net APY based on ratio of debt to loans
+  // Net APY = 4% (loan yield) - (debt/loans ratio) * 5% (borrow cost)
+  const netApy = totalLoansUSD > 0
+    ? (LOAN_APY - (totalDebtUSD / totalLoansUSD) * DEBT_APY)
+    : (totalDebtUSD > 0 ? -DEBT_APY : 0);
 
   const isLoading = state.status === 'loading';
   const healthIndicatorPosition = 100 - getHealthBarPosition(avgHealthFactor);
