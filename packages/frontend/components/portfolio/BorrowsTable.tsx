@@ -9,6 +9,7 @@ import { DebtPosition, PortfolioState, useDataContext } from '@/contexts/DataCon
 import { useWallet } from '@/contexts/WalletContext';
 import { formatCurrency } from '@/lib/utils';
 import RepayModal from './RepayModal';
+import StableRepayModal from './StableRepayModal';
 
 interface BorrowsTableProps {
   state: PortfolioState;
@@ -36,32 +37,50 @@ const getHealthColor = (hf: number) => {
 };
 
 export default function BorrowsTable({ state, positions, totalUSD }: BorrowsTableProps) {
-  const { marketConfigs } = useDataContext();
-  const { wallet, activeAccount, escrowContracts, contracts } = useWallet();
+  const { marketConfigs, stableMarketConfigs } = useDataContext();
+  const { wallet, activeAccount, escrowContracts, stableEscrowContracts, contracts } = useWallet();
   const [repayModalOpen, setRepayModalOpen] = useState(false);
+  const [stableRepayModalOpen, setStableRepayModalOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<DebtPosition | null>(null);
 
   const handleRepayClick = (position: DebtPosition) => {
     setSelectedPosition(position);
-    setRepayModalOpen(true);
+    if (position.isStable) {
+      setStableRepayModalOpen(true);
+    } else {
+      setRepayModalOpen(true);
+    }
   };
 
   const handleCloseModal = () => {
     setRepayModalOpen(false);
+    setStableRepayModalOpen(false);
     setSelectedPosition(null);
   };
 
-  // Get escrow contract for the selected position's pool
+  // Get escrow contract for the selected position's pool (regular debt)
   const selectedEscrowContract = useMemo(() => {
-    if (!selectedPosition) return undefined;
+    if (!selectedPosition || selectedPosition.isStable) return undefined;
     return escrowContracts.get(selectedPosition.poolAddress);
   }, [selectedPosition, escrowContracts]);
+
+  // Get stable escrow contract for stable positions
+  const selectedStableEscrowContract = useMemo(() => {
+    if (!selectedPosition || !selectedPosition.isStable) return undefined;
+    return stableEscrowContracts.get(selectedPosition.poolAddress);
+  }, [selectedPosition, stableEscrowContracts]);
 
   // Get debt token contract for the selected position
   const selectedDebtTokenContract = useMemo(() => {
     if (!selectedPosition || !contracts) return undefined;
     const tokenKey = selectedPosition.loanAsset.toLowerCase() as 'usdc' | 'zec';
     return contracts.tokens[tokenKey];
+  }, [selectedPosition, contracts]);
+
+  // Get stable token contract for stable positions (zUSD)
+  const selectedStableTokenContract = useMemo(() => {
+    if (!selectedPosition || !selectedPosition.isStable || !contracts) return undefined;
+    return contracts.tokens.zusd;
   }, [selectedPosition, contracts]);
 
   // Get pool address for the selected position
@@ -90,6 +109,16 @@ export default function BorrowsTable({ state, positions, totalUSD }: BorrowsTabl
         debtPosition={selectedPosition}
         escrowContract={selectedEscrowContract}
         debtTokenContract={selectedDebtTokenContract}
+        poolAddress={selectedPoolAddress}
+        wallet={wallet?.instance as BaseWallet | undefined}
+        userAddress={userAddress}
+      />
+      <StableRepayModal
+        open={stableRepayModalOpen}
+        onClose={handleCloseModal}
+        debtPosition={selectedPosition}
+        stableEscrowContract={selectedStableEscrowContract}
+        stableTokenContract={selectedStableTokenContract}
         poolAddress={selectedPoolAddress}
         wallet={wallet?.instance as BaseWallet | undefined}
         userAddress={userAddress}
@@ -158,25 +187,30 @@ export default function BorrowsTable({ state, positions, totalUSD }: BorrowsTabl
                       </div>
                     </td>
                     <td className="py-4 px-5">
-                      <div className="relative flex -space-x-2">
-                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
-                          <Image
-                            src={`/icons/${item.loanAsset}.svg`}
-                            alt={item.loanAsset}
-                            width={32}
-                            height={32}
-                            className="w-full h-full object-contain"
-                          />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex -space-x-2">
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
+                            <Image
+                              src={`/icons/${item.loanAsset}.svg`}
+                              alt={item.loanAsset}
+                              width={32}
+                              height={32}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
+                            <Image
+                              src={`/icons/${item.collateralAsset}.svg`}
+                              alt={item.collateralAsset}
+                              width={32}
+                              height={32}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
-                          <Image
-                            src={`/icons/${item.collateralAsset}.svg`}
-                            alt={item.collateralAsset}
-                            width={32}
-                            height={32}
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
+                        {item.isStable && (
+                          <span className="text-xs text-text-muted font-mono">Stablecoin</span>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 px-5 text-right">

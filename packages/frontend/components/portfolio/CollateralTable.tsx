@@ -9,6 +9,7 @@ import { CollateralPosition, PortfolioState } from '@/contexts/DataContext';
 import { useWallet } from '@/contexts/WalletContext';
 import { formatCurrency } from '@/lib/utils';
 import WithdrawCollateralModal from './WithdrawCollateralModal';
+import StableWithdrawCollateralModal from './StableWithdrawCollateralModal';
 
 interface CollateralTableProps {
   state: PortfolioState;
@@ -30,8 +31,9 @@ const formatCrypto = (value: number) => {
 };
 
 export default function CollateralTable({ state, positions, totalUSD }: CollateralTableProps) {
-  const { wallet, activeAccount, escrowContracts } = useWallet();
+  const { wallet, activeAccount, escrowContracts, stableEscrowContracts } = useWallet();
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [stableWithdrawModalOpen, setStableWithdrawModalOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<CollateralPosition | null>(null);
 
   // Filter out positions with zero balance
@@ -42,19 +44,30 @@ export default function CollateralTable({ state, positions, totalUSD }: Collater
 
   const handleWithdrawClick = (position: CollateralPosition) => {
     setSelectedPosition(position);
-    setWithdrawModalOpen(true);
+    if (position.isStable) {
+      setStableWithdrawModalOpen(true);
+    } else {
+      setWithdrawModalOpen(true);
+    }
   };
 
   const handleCloseModal = () => {
     setWithdrawModalOpen(false);
+    setStableWithdrawModalOpen(false);
     setSelectedPosition(null);
   };
 
-  // Get escrow contract for the selected position's pool
+  // Get escrow contract for the selected position's pool (regular)
   const selectedEscrowContract = useMemo(() => {
-    if (!selectedPosition) return undefined;
+    if (!selectedPosition || selectedPosition.isStable) return undefined;
     return escrowContracts.get(selectedPosition.poolAddress);
   }, [selectedPosition, escrowContracts]);
+
+  // Get stable escrow contract for stable positions
+  const selectedStableEscrowContract = useMemo(() => {
+    if (!selectedPosition || !selectedPosition.isStable) return undefined;
+    return stableEscrowContracts.get(selectedPosition.poolAddress);
+  }, [selectedPosition, stableEscrowContracts]);
 
   // Get user address as AztecAddress
   const userAddress = useMemo(() =>
@@ -69,6 +82,14 @@ export default function CollateralTable({ state, positions, totalUSD }: Collater
         onClose={handleCloseModal}
         collateralPosition={selectedPosition}
         escrowContract={selectedEscrowContract}
+        wallet={wallet?.instance as BaseWallet | undefined}
+        userAddress={userAddress}
+      />
+      <StableWithdrawCollateralModal
+        open={stableWithdrawModalOpen}
+        onClose={handleCloseModal}
+        collateralPosition={selectedPosition}
+        stableEscrowContract={selectedStableEscrowContract}
         wallet={wallet?.instance as BaseWallet | undefined}
         userAddress={userAddress}
       />
@@ -122,25 +143,30 @@ export default function CollateralTable({ state, positions, totalUSD }: Collater
                       </div>
                     </td>
                     <td className="py-4 px-5">
-                      <div className="relative flex -space-x-2">
-                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
-                          <Image
-                            src={`/icons/${item.loanAsset}.svg`}
-                            alt={item.loanAsset}
-                            width={32}
-                            height={32}
-                            className="w-full h-full object-contain"
-                          />
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex -space-x-2">
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-10 overflow-hidden">
+                            <Image
+                              src={`/icons/${item.loanAsset}.svg`}
+                              alt={item.loanAsset}
+                              width={32}
+                              height={32}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
+                          <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
+                            <Image
+                              src={`/icons/${item.collateralAsset}.svg`}
+                              alt={item.collateralAsset}
+                              width={32}
+                              height={32}
+                              className="w-full h-full object-contain"
+                            />
+                          </div>
                         </div>
-                        <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center border-2 border-surface z-0 opacity-80 overflow-hidden">
-                          <Image
-                            src={`/icons/${item.collateralAsset}.svg`}
-                            alt={item.collateralAsset}
-                            width={32}
-                            height={32}
-                            className="w-full h-full object-contain"
-                          />
-                        </div>
+                        {item.isStable && (
+                          <span className="text-xs text-text-muted font-mono">Stablecoin</span>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 px-5 text-right">

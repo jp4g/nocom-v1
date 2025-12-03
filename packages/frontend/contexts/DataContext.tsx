@@ -8,7 +8,7 @@ import { Market, MarketDataState, AggregateMarketData, StableMarket, StableMarke
 import { NocomLendingPoolV1Contract, NocomEscrowV1Contract, NocomStablePoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
-import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
+import { batchSimulateDebtPosition, batchSimulateLoanPosition, batchSimulateStableDebtPosition } from '@/lib/contract/position';
 import { batchSimulateStableSupply } from '@/lib/contract/stableSupply';
 import { EPOCH_LENGTH, USDC_LTV, ZCASH_LTV, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
@@ -62,6 +62,7 @@ export interface LoanPosition extends PortfolioPosition {
 
 export interface CollateralPosition extends PortfolioPosition {
   collateralFactor: number;
+  isStable?: boolean;
 }
 
 export interface DebtPosition extends PortfolioPosition {
@@ -69,6 +70,7 @@ export interface DebtPosition extends PortfolioPosition {
   healthFactor: number;
   principal: bigint;
   interest: bigint;
+  isStable?: boolean;
 }
 
 export interface PortfolioState {
@@ -126,7 +128,7 @@ const defaultPortfolioData: PortfolioData = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export function DataProvider({ children }: PropsWithChildren) {
-  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts, suppliedPools } = useWallet();
+  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts, stableEscrowContracts, suppliedPools } = useWallet();
 
   const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
   const userAddress = useMemo(() =>
@@ -660,6 +662,113 @@ export function DataProvider({ children }: PropsWithChildren) {
         });
       }
 
+      // ==================== Fetch Stable Positions ====================
+      // Build arrays for stable markets that have stable escrow contracts registered
+      const stablePoolsWithEscrows: NocomStablePoolV1Contract[] = [];
+      const stableEscrowAddresses: AztecAddress[] = [];
+      const stablePoolConfigsWithEscrows: StableMarketWithContract[] = [];
+
+      for (const stablePoolConfig of stableMarketConfigs) {
+        const stableEscrowContract = stableEscrowContracts.get(stablePoolConfig.poolAddress);
+        if (stableEscrowContract) {
+          stablePoolsWithEscrows.push(stablePoolConfig.contract);
+          stableEscrowAddresses.push(stableEscrowContract.address);
+          stablePoolConfigsWithEscrows.push(stablePoolConfig);
+        }
+      }
+
+      console.log('[DataContext] Found', stablePoolsWithEscrows.length, 'stable pools with escrows');
+
+      // Fetch stable debt positions if we have any stable pools with escrows
+      if (stablePoolsWithEscrows.length > 0) {
+        const stablePositionResults = await batchSimulateStableDebtPosition(
+          stablePoolsWithEscrows,
+          stableEscrowAddresses,
+          wallet,
+          userAddress,
+          currentEpoch
+        );
+
+        // Map stable contract positions to UI positions
+        stablePositionResults.forEach((contractPosition, poolAddress) => {
+          const stablePoolConfig = stablePoolConfigsWithEscrows.find(
+            m => m.poolAddress === poolAddress.toString()
+          );
+          if (!stablePoolConfig) return;
+
+          // Get the price for the collateral asset (e.g., ZEC)
+          const collateralTokenAddress = contracts?.tokens[
+            stablePoolConfig.collateralAsset.toLowerCase() as 'usdc' | 'zec'
+          ]?.address?.toString();
+          const collateralPriceState = collateralTokenAddress ? prices.get(collateralTokenAddress) : undefined;
+          const collateralPrice = collateralPriceState?.status === 'loaded' && collateralPriceState.price
+            ? Number(collateralPriceState.price) / 1e4
+            : 0;
+
+          // zUSD is always $1 - no price fetch needed
+          const stablecoinPrice = 1;
+
+          // Create collateral position if there's collateral (stable market)
+          if (contractPosition.collateral > 0n) {
+            const collateralBalance = contractPosition.collateral;
+            const collateralBalanceUSD = (Number(collateralBalance) / 1e18) * collateralPrice;
+
+            collateralPositions.push({
+              symbol: stablePoolConfig.collateralAsset.toUpperCase(),
+              loanAsset: stablePoolConfig.stablecoin.toLowerCase(),
+              collateralAsset: stablePoolConfig.collateralAsset.toLowerCase(),
+              balance: collateralBalance,
+              balanceUSD: collateralBalanceUSD,
+              poolAddress: stablePoolConfig.poolAddress,
+              collateralFactor: 0.80, // ZCASH_LTV for stable pools
+              isStable: true,
+            });
+          }
+
+          // Create debt position if there's debt (stable market - minted zUSD)
+          const totalStableDebt = contractPosition.principal + contractPosition.interest;
+          if (totalStableDebt > 0n) {
+            const debtBalanceUSD = (Number(totalStableDebt) / 1e18) * stablecoinPrice;
+
+            // Calculate health factor for stable position
+            const collateralPriceBigint = collateralPriceState?.status === 'loaded' && collateralPriceState.price
+              ? collateralPriceState.price
+              : 10000n;
+            // zUSD is always $1 = 10000 in 4 decimal price format
+            const stablePriceBigint = 10000n;
+
+            // Use ZCASH_LTV for stable collateral (ZEC backing zUSD)
+            const maxLtv = ZCASH_LTV;
+
+            let healthFactor = 0;
+            if (contractPosition.collateral > 0n && totalStableDebt > 0n) {
+              const healthRaw = calculateLtvHealth(
+                stablePriceBigint,
+                totalStableDebt,
+                collateralPriceBigint,
+                contractPosition.collateral,
+                maxLtv
+              );
+              healthFactor = healthRaw === 0n ? Infinity : Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
+            }
+
+            debtPositions.push({
+              symbol: stablePoolConfig.stablecoin.toUpperCase(),
+              loanAsset: stablePoolConfig.stablecoin.toLowerCase(),
+              collateralAsset: stablePoolConfig.collateralAsset.toLowerCase(),
+              balance: totalStableDebt,
+              balanceUSD: debtBalanceUSD,
+              poolAddress: stablePoolConfig.poolAddress,
+              apy: DEBT_APY,
+              healthFactor,
+              principal: contractPosition.principal,
+              interest: contractPosition.interest,
+              isStable: true,
+            });
+          }
+        });
+      }
+
       // Calculate totals
       const totalLoansUSD = loanPositions.reduce((sum, pos) => sum + pos.balanceUSD, 0);
       const totalCollateralUSD = collateralPositions.reduce((sum, pos) => sum + pos.balanceUSD, 0);
@@ -693,7 +802,7 @@ export function DataProvider({ children }: PropsWithChildren) {
     } finally {
       isFetchingPortfolioRef.current = false;
     }
-  }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, suppliedPools, ensurePricesLoaded]);
+  }, [marketConfigs, stableMarketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, stableEscrowContracts, suppliedPools, ensurePricesLoaded]);
 
   // ==================== Initial fetch for prices and markets (global data) ====================
   // This runs once when wallet is ready. The callbacks check userAddressRef internally.

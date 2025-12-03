@@ -125,16 +125,16 @@ export async function repayDebtByBurn(
 }
 
 /**
- * Withdraw collateral from the lending pool via the escrow contract
- * 
+ * Withdraw collateral from the stable pool via the stable escrow contract
+ *
  * @param from - address withdrawing collateral
- * @param escrowContract - escrow contract managing debt position
+ * @param escrowContract - stable escrow contract managing debt position
  * @param amount - amount to withdraw
  * @param assertedCollateralTokenPrice - asserted price of the collateral token
  * @param opts - send and wait options
  * @returns - receipt upon tx confirmation
  */
-export async function withdrawCollateral(
+export async function withdrawStableCollateral(
     from: AztecAddress,
     escrowContract: NocomStableEscrowV1Contract,
     amount: bigint,

@@ -131,3 +131,64 @@ export async function batchSimulateLoanPosition(
     return result;
 }
 
+
+/**
+ * Returns the debt and collateral data for stable pools
+ * Uses a queue to prevent concurrent IndexedDB access which causes TransactionInactiveError
+ */
+export async function batchSimulateStableDebtPosition(
+    stablePools: NocomStablePoolV1Contract[],
+    escrowAddresses: AztecAddress[],
+    wallet: BaseWallet,
+    from: AztecAddress,
+    currentEpoch: bigint
+): Promise<Map<AztecAddress, DebtPosition>> {
+    if (stablePools.length > 4)
+        throw new Error('Can only fetch stable debt position for up to 4 pools at a time');
+    if (stablePools.length !== escrowAddresses.length)
+        throw new Error('Stable pools and escrow addresses length mismatch');
+
+    // Queue the simulation to prevent concurrent IndexedDB access
+    const batchResult = await simulationQueue.enqueue(async () => {
+        console.log('[batchSimulateStableDebtPosition] Starting simulation for', stablePools.length, 'stable pools');
+        const calls = [];
+        for (let i = 0; i < stablePools.length; i++) {
+            calls.push(stablePools[i].methods.get_collateral_and_debt(escrowAddresses[i]));
+        }
+        const result = await new BatchCall(wallet, calls).simulate({ from });
+        console.log('[batchSimulateStableDebtPosition] Simulation completed');
+        return result;
+    });
+
+    // calculate interest for each position
+    const positions: DebtPosition[] = [];
+    for (const result of batchResult) {
+        const [collateralNote, debtNote] = result;
+        const collateral = collateralNote.amount;
+        const principal = debtNote.amount;
+        const startingEpoch = debtNote.epoch;
+        const interest = calculateInterest(
+            principal,
+            startingEpoch,
+            currentEpoch,
+            BigInt(EPOCH_LENGTH),
+            BORROW_INTEREST
+        );
+        positions.push({ collateral, interest, principal, startingEpoch });
+    }
+
+    // Build result map
+    const result = new Map<AztecAddress, DebtPosition>();
+    for (let i = 0; i < stablePools.length; i++) {
+        const position = positions[i];
+
+        console.log('[batchSimulateStableDebtPosition] Stable pool data:', {
+            poolAddress: stablePools[i].address,
+            ...position
+        });
+
+        result.set(stablePools[i].address, position);
+    }
+    return result;
+}
+
