@@ -38,7 +38,7 @@ export default function Filters({ marketType, onMarketTypeChange }: FiltersProps
               : 'bg-black border-surface-border text-text-muted hover:bg-surface-hover'
           }`}
         >
-          Debt Markets
+          Isolated Lending
         </button>
         <button
           onClick={() => onMarketTypeChange('stables')}

@@ -63,10 +63,27 @@ export default function StableBorrowModal({
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  const { prices } = useDataContext();
+  const { prices, portfolioData } = useDataContext();
 
   // Get stable escrow contract for this market
   const { escrowContract, isLoading: isEscrowLoading } = useStableEscrow(market.poolAddress);
+
+  // Get user's current stable position for this market from portfolio data
+  const currentPosition = useMemo(() => {
+    // Find the collateral position for this stable market
+    const collateralPos = portfolioData.collateral.find(
+      p => p.poolAddress === market.poolAddress && p.isStable
+    );
+    // Find the debt position for this stable market
+    const debtPos = portfolioData.debt.find(
+      p => p.poolAddress === market.poolAddress && p.isStable
+    );
+
+    return {
+      collateral: collateralPos?.balance ?? 0n,
+      debt: debtPos?.balance ?? 0n,
+    };
+  }, [portfolioData, market.poolAddress]);
 
   useEffect(() => {
     setMounted(true);
@@ -101,15 +118,6 @@ export default function StableBorrowModal({
     }
     return 500000n; // Default fallback ($50 in oracle units)
   }, [prices]);
-
-  // TODO: Get user's current stable position for this market from portfolio data
-  // For now, we'll use placeholder values - this should be wired up to DataContext
-  const currentPosition = useMemo(() => {
-    return {
-      collateral: 0n, // Will be fetched from stable pool position
-      debt: 0n, // Will be fetched from stable pool position
-    };
-  }, []);
 
   // Format amounts
   const formatAmount = (amount: bigint): string => {

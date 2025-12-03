@@ -164,9 +164,9 @@ export default function CollateralTable({ state, positions, totalUSD }: Collater
                             />
                           </div>
                         </div>
-                        {item.isStable && (
-                          <span className="text-xs text-text-muted font-mono">Stablecoin</span>
-                        )}
+                        <span className="text-xs text-text-muted font-mono">
+                          {item.isStable ? 'Stablecoin' : 'Isolated Lending'}
+                        </span>
                       </div>
                     </td>
                     <td className="py-4 px-5 text-right">

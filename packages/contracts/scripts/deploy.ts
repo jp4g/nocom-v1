@@ -246,7 +246,7 @@ async function main() {
         await mintStable(
             bobAddress,
             zecStableEscrow,
-            precision(1500n),
+            precision(1_884_233n),
             prices[1]!,
         )
     }

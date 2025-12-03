@@ -188,7 +188,7 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                       </div>
                       <div>
                         <div className="font-medium text-white">{market.loanAsset} / {market.collateralAsset}</div>
-                        <div className="text-xs text-text-muted font-mono">Isolated</div>
+                        <div className="text-xs text-text-muted font-mono">Isolated Lending</div>
                       </div>
                     </div>
                   </td>
