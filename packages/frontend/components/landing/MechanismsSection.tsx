@@ -1,4 +1,4 @@
-import { ShieldCheck, Zap, Cpu } from 'lucide-react';
+import { Globe, Layers, Coins } from 'lucide-react';
 
 export default function MechanismsSection() {
   return (
@@ -7,33 +7,33 @@ export default function MechanismsSection() {
         {/* Card 1 */}
         <div className="glass-panel p-8 rounded-xl group hover:border-indigo-500/30 transition-all duration-300">
           <div className="w-12 h-12 bg-indigo-500/10 rounded-lg flex items-center justify-center mb-6 text-indigo-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-colors">
-            <ShieldCheck className="w-6 h-6" />
+            <Globe className="w-6 h-6" />
           </div>
-          <h3 className="text-xl text-white font-medium mb-3">Shielded Pools</h3>
+          <h3 className="text-xl text-white font-medium mb-3">Private Lending Across Chains</h3>
           <p className="text-sm text-neutral-400 leading-relaxed">
-            Assets are pooled in a smart contract that utilizes zk-SNARKs to break the link between depositor and withdrawer, ensuring privacy by default.
+            Utilize Wormhole and Train Protocol bridges to bring in assets from any chain, from EVM to ZCash to Solana.
           </p>
         </div>
 
         {/* Card 2 */}
         <div className="glass-panel p-8 rounded-xl group hover:border-indigo-500/30 transition-all duration-300">
           <div className="w-12 h-12 bg-indigo-500/10 rounded-lg flex items-center justify-center mb-6 text-indigo-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-colors">
-            <Zap className="w-6 h-6" />
+            <Layers className="w-6 h-6" />
           </div>
-          <h3 className="text-xl text-white font-medium mb-3">Efficiency Mode</h3>
+          <h3 className="text-xl text-white font-medium mb-3">Isolated Debt Pools</h3>
           <p className="text-sm text-neutral-400 leading-relaxed">
-            Borrow correlated assets (e.g., ETH and stETH) with higher LTV ratios and lower collateralization requirements, maximizing capital efficiency.
+            Gain lending or debt exposure to only the assets you want to interact with. Turn unproductive shielded tokens into yield-generating assets.
           </p>
         </div>
 
         {/* Card 3 */}
         <div className="glass-panel p-8 rounded-xl group hover:border-indigo-500/30 transition-all duration-300">
           <div className="w-12 h-12 bg-indigo-500/10 rounded-lg flex items-center justify-center mb-6 text-indigo-400 group-hover:text-white group-hover:bg-indigo-500/20 transition-colors">
-            <Cpu className="w-6 h-6" />
+            <Coins className="w-6 h-6" />
           </div>
-          <h3 className="text-xl text-white font-medium mb-3">Instant Liquidations</h3>
+          <h3 className="text-xl text-white font-medium mb-3">Overcollateralized Stablecoins</h3>
           <p className="text-sm text-neutral-400 leading-relaxed">
-            Our solver network monitors pool health block-by-block. Liquidations are processed atomically to prevent bad debt accumulation.
+            Use assets like ZCash to privately collateralize the zUSD stablecoin, letting you leverage your shielded assets without leaking any public data past the expansion of the zUSD total supply.
           </p>
         </div>
       </div>

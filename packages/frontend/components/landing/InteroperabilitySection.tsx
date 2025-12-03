@@ -64,7 +64,7 @@ export default function InteroperabilitySection() {
               <div className="flex justify-between items-center mb-2">
                 <div className="flex items-center gap-2">
                   <EyeOff className="w-4 h-4 text-indigo-400" />
-                  <span className="text-sm text-indigo-100">Private Mode</span>
+                  <span className="text-sm text-indigo-100">{ghostMode ? 'Fast Mode' : 'Secure Mode'}</span>
                 </div>
                 <div className="relative inline-block w-10 align-middle select-none">
                   <input
@@ -77,9 +77,8 @@ export default function InteroperabilitySection() {
                   <label htmlFor="toggle-mode" className="toggle-label block overflow-hidden h-5 rounded-full bg-indigo-500 cursor-pointer"></label>
                 </div>
               </div>
-              <div className="flex justify-between text-xs text-indigo-300/60 font-mono">
-                <span>Anonymity Set</span>
-                <span>14,203 Deposits</span>
+              <div className="text-xs text-indigo-300/60">
+                <span>{ghostMode ? 'Private remote proving with TEE-Rex' : 'Prove everything client-side'}</span>
               </div>
             </div>
 
