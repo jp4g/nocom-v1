@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
-import { LoanPosition } from '@/contexts/DataContext';
+import { LoanPosition, useDataContext } from '@/contexts/DataContext';
 import { MarketUtilization } from '@/lib/types';
 import { parseTokenAmount } from '@/lib/utils';
 import { withdrawLiquidity } from '@nocom-v1/contracts/contract';
@@ -35,6 +35,8 @@ export default function WithdrawModal({
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  const { optimisticWithdrawLoan, prices } = useDataContext();
 
   useEffect(() => {
     setMounted(true);
@@ -124,7 +126,7 @@ export default function WithdrawModal({
   }, [inputValue, totalClaimable, poolLiquidity]);
 
   const handleWithdraw = async () => {
-    if (!isValidInput || !wallet || !userAddress || !poolContract) return;
+    if (!isValidInput || !wallet || !userAddress || !poolContract || !loanPosition) return;
 
     setIsProcessing(true);
 
@@ -141,7 +143,30 @@ export default function WithdrawModal({
       );
       console.log('Withdraw transaction receipt:', txReceipt);
 
-      toast.success(`Successfully withdrew ${inputValue} ${loanPosition?.symbol}`);
+      // Apply optimistic update
+      // Get the token price from prices map (need to find the right key)
+      let tokenPrice = 10000n; // Default to $1
+      for (const [, priceState] of prices.entries()) {
+        if (priceState.status === 'loaded' && priceState.price !== undefined) {
+          // Use ZEC price for ZEC, or default to USDC price
+          if (loanPosition.symbol.toUpperCase() === 'ZEC' && priceState.price !== 10000n) {
+            tokenPrice = priceState.price;
+            break;
+          } else if (loanPosition.symbol.toUpperCase() === 'USDC') {
+            tokenPrice = 10000n;
+            break;
+          }
+        }
+      }
+
+      optimisticWithdrawLoan({
+        poolAddress: loanPosition.poolAddress,
+        amount,
+        loanAsset: loanPosition.symbol,
+        tokenPrice,
+      });
+
+      toast.success(`Successfully withdrew ${inputValue} ${loanPosition.symbol}`);
       onClose();
     } catch (error) {
       console.error('Withdraw error:', error);

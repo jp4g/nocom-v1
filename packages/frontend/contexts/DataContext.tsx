@@ -89,6 +89,64 @@ export interface PortfolioData {
   avgHealthFactor: number;
 }
 
+// ==================== Optimistic Update Types ====================
+export interface OptimisticSupplyParams {
+  poolAddress: string;
+  amount: bigint;
+  loanAsset: string;
+  collateralAsset: string;
+  tokenPrice: bigint;
+}
+
+export interface OptimisticBorrowParams {
+  poolAddress: string;
+  amount: bigint;
+  loanAsset: string;
+  collateralAsset: string;
+  tokenPrice: bigint;
+  healthFactor: number;
+}
+
+export interface OptimisticCollateralizeParams {
+  poolAddress: string;
+  amount: bigint;
+  loanAsset: string;
+  collateralAsset: string;
+  tokenPrice: bigint;
+  collateralFactor: number;
+  isStable?: boolean;
+}
+
+export interface OptimisticWithdrawLoanParams {
+  poolAddress: string;
+  amount: bigint;
+  loanAsset: string;
+  tokenPrice: bigint;
+}
+
+export interface OptimisticRepayParams {
+  poolAddress: string;
+  amount: bigint;
+  loanAsset: string;
+  tokenPrice: bigint;
+  isStable?: boolean;
+}
+
+export interface OptimisticWithdrawCollateralParams {
+  poolAddress: string;
+  amount: bigint;
+  collateralAsset: string;
+  tokenPrice: bigint;
+  isStable?: boolean;
+}
+
+export interface OptimisticMintParams {
+  poolAddress: string;
+  amount: bigint;
+  collateralAsset: string;
+  healthFactor: number;
+}
+
 // ==================== Context Value ====================
 export interface DataContextValue {
   // Prices
@@ -112,6 +170,15 @@ export interface DataContextValue {
   refetchPrices: () => Promise<void>;
   refetchMarkets: () => Promise<void>;
   refetchPortfolio: () => Promise<void>;
+
+  // Optimistic updates
+  optimisticSupply: (params: OptimisticSupplyParams) => void;
+  optimisticBorrow: (params: OptimisticBorrowParams) => void;
+  optimisticCollateralize: (params: OptimisticCollateralizeParams) => void;
+  optimisticWithdrawLoan: (params: OptimisticWithdrawLoanParams) => void;
+  optimisticRepay: (params: OptimisticRepayParams) => void;
+  optimisticWithdrawCollateral: (params: OptimisticWithdrawCollateralParams) => void;
+  optimisticMint: (params: OptimisticMintParams) => void;
 }
 
 const defaultPortfolioData: PortfolioData = {
@@ -863,6 +930,448 @@ export function DataProvider({ children }: PropsWithChildren) {
     };
   }, [fetchPortfolio, wallet, userAddress, pricesLoaded]);
 
+  // ==================== Optimistic Update Functions ====================
+
+  // Helper to recalculate portfolio totals
+  const recalculatePortfolioTotals = useCallback((
+    loans: LoanPosition[],
+    collateral: CollateralPosition[],
+    debt: DebtPosition[]
+  ): Pick<PortfolioData, 'totalLoansUSD' | 'totalCollateralUSD' | 'totalDebtUSD' | 'netWorthUSD' | 'avgHealthFactor'> => {
+    const totalLoansUSD = loans.reduce((sum, pos) => sum + pos.balanceUSD, 0);
+    const totalCollateralUSD = collateral.reduce((sum, pos) => sum + pos.balanceUSD, 0);
+    const totalDebtUSD = debt.reduce((sum, pos) => sum + pos.balanceUSD, 0);
+    const netWorthUSD = totalLoansUSD + totalCollateralUSD - totalDebtUSD;
+    const avgHealthFactor = debt.length === 0
+      ? 1
+      : debt.reduce((sum, pos) => sum + pos.healthFactor, 0) / debt.length;
+
+    return { totalLoansUSD, totalCollateralUSD, totalDebtUSD, netWorthUSD, avgHealthFactor };
+  }, []);
+
+  // Optimistic supply - adds to loan positions and market supply
+  const optimisticSupply = useCallback((params: OptimisticSupplyParams) => {
+    const { poolAddress, amount, loanAsset, collateralAsset, tokenPrice } = params;
+    const balanceUSD = (Number(amount) / 1e18) * (Number(tokenPrice) / 1e4);
+
+    // Update market data
+    setMarkets(prevMarkets => {
+      const newMarkets = new Map(prevMarkets);
+      const marketState = newMarkets.get(poolAddress);
+      if (marketState?.status === 'loaded' && marketState.data) {
+        newMarkets.set(poolAddress, {
+          ...marketState,
+          data: {
+            ...marketState.data,
+            totalSupplied: marketState.data.totalSupplied + amount,
+          },
+        });
+      }
+      return newMarkets;
+    });
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingLoanIndex = prev.loans.findIndex(l => l.poolAddress === poolAddress);
+      let newLoans: LoanPosition[];
+
+      if (existingLoanIndex >= 0) {
+        // Update existing loan
+        newLoans = [...prev.loans];
+        const existingLoan = newLoans[existingLoanIndex];
+        const newBalance = existingLoan.balance + amount;
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        newLoans[existingLoanIndex] = {
+          ...existingLoan,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+        };
+      } else {
+        // Add new loan position
+        newLoans = [...prev.loans, {
+          symbol: loanAsset.toUpperCase(),
+          loanAsset: loanAsset.toLowerCase(),
+          collateralAsset: collateralAsset.toLowerCase(),
+          balance: amount,
+          balanceUSD,
+          poolAddress,
+          apy: LOAN_APY,
+        }];
+      }
+
+      const totals = recalculatePortfolioTotals(newLoans, prev.collateral, prev.debt);
+      return { ...prev, loans: newLoans, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic supply applied:', { poolAddress, amount: amount.toString() });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic borrow - adds to debt positions and market borrow
+  const optimisticBorrow = useCallback((params: OptimisticBorrowParams) => {
+    const { poolAddress, amount, loanAsset, collateralAsset, tokenPrice, healthFactor } = params;
+    const balanceUSD = (Number(amount) / 1e18) * (Number(tokenPrice) / 1e4);
+
+    // Update market data
+    setMarkets(prevMarkets => {
+      const newMarkets = new Map(prevMarkets);
+      const marketState = newMarkets.get(poolAddress);
+      if (marketState?.status === 'loaded' && marketState.data) {
+        newMarkets.set(poolAddress, {
+          ...marketState,
+          data: {
+            ...marketState.data,
+            totalBorrowed: marketState.data.totalBorrowed + amount,
+          },
+        });
+      }
+      return newMarkets;
+    });
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingDebtIndex = prev.debt.findIndex(d => d.poolAddress === poolAddress && !d.isStable);
+      let newDebt: DebtPosition[];
+
+      if (existingDebtIndex >= 0) {
+        // Update existing debt
+        newDebt = [...prev.debt];
+        const existingDebtPos = newDebt[existingDebtIndex];
+        const newBalance = existingDebtPos.balance + amount;
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        newDebt[existingDebtIndex] = {
+          ...existingDebtPos,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+          principal: existingDebtPos.principal + amount,
+          healthFactor,
+        };
+      } else {
+        // Add new debt position
+        newDebt = [...prev.debt, {
+          symbol: loanAsset.toUpperCase(),
+          loanAsset: loanAsset.toLowerCase(),
+          collateralAsset: collateralAsset.toLowerCase(),
+          balance: amount,
+          balanceUSD,
+          poolAddress,
+          apy: DEBT_APY,
+          healthFactor,
+          principal: amount,
+          interest: 0n,
+        }];
+      }
+
+      const totals = recalculatePortfolioTotals(prev.loans, prev.collateral, newDebt);
+      return { ...prev, debt: newDebt, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic borrow applied:', { poolAddress, amount: amount.toString() });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic collateralize - adds to collateral positions
+  const optimisticCollateralize = useCallback((params: OptimisticCollateralizeParams) => {
+    const { poolAddress, amount, loanAsset, collateralAsset, tokenPrice, collateralFactor, isStable } = params;
+    const balanceUSD = (Number(amount) / 1e18) * (Number(tokenPrice) / 1e4);
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingCollateralIndex = prev.collateral.findIndex(
+        c => c.poolAddress === poolAddress && c.isStable === isStable
+      );
+      let newCollateral: CollateralPosition[];
+
+      if (existingCollateralIndex >= 0) {
+        // Update existing collateral
+        newCollateral = [...prev.collateral];
+        const existingCollateralPos = newCollateral[existingCollateralIndex];
+        const newBalance = existingCollateralPos.balance + amount;
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        newCollateral[existingCollateralIndex] = {
+          ...existingCollateralPos,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+        };
+      } else {
+        // Add new collateral position
+        newCollateral = [...prev.collateral, {
+          symbol: collateralAsset.toUpperCase(),
+          loanAsset: loanAsset.toLowerCase(),
+          collateralAsset: collateralAsset.toLowerCase(),
+          balance: amount,
+          balanceUSD,
+          poolAddress,
+          collateralFactor,
+          isStable,
+        }];
+      }
+
+      const totals = recalculatePortfolioTotals(prev.loans, newCollateral, prev.debt);
+      return { ...prev, collateral: newCollateral, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic collateralize applied:', { poolAddress, amount: amount.toString(), isStable });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic withdraw loan - removes from loan positions and market supply
+  const optimisticWithdrawLoan = useCallback((params: OptimisticWithdrawLoanParams) => {
+    const { poolAddress, amount, loanAsset, tokenPrice } = params;
+
+    // Update market data
+    setMarkets(prevMarkets => {
+      const newMarkets = new Map(prevMarkets);
+      const marketState = newMarkets.get(poolAddress);
+      if (marketState?.status === 'loaded' && marketState.data) {
+        const newSupplied = marketState.data.totalSupplied > amount
+          ? marketState.data.totalSupplied - amount
+          : 0n;
+        newMarkets.set(poolAddress, {
+          ...marketState,
+          data: {
+            ...marketState.data,
+            totalSupplied: newSupplied,
+          },
+        });
+      }
+      return newMarkets;
+    });
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingLoanIndex = prev.loans.findIndex(l => l.poolAddress === poolAddress);
+      if (existingLoanIndex < 0) return prev;
+
+      const existingLoan = prev.loans[existingLoanIndex];
+      const newBalance = existingLoan.balance > amount ? existingLoan.balance - amount : 0n;
+
+      let newLoans: LoanPosition[];
+      if (newBalance === 0n) {
+        // Remove the position
+        newLoans = prev.loans.filter((_, i) => i !== existingLoanIndex);
+      } else {
+        // Update the position
+        newLoans = [...prev.loans];
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        newLoans[existingLoanIndex] = {
+          ...existingLoan,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+        };
+      }
+
+      const totals = recalculatePortfolioTotals(newLoans, prev.collateral, prev.debt);
+      return { ...prev, loans: newLoans, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic withdraw loan applied:', { poolAddress, amount: amount.toString() });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic repay - removes from debt positions and market borrow
+  const optimisticRepay = useCallback((params: OptimisticRepayParams) => {
+    const { poolAddress, amount, loanAsset, tokenPrice, isStable } = params;
+
+    // Update market data (only for regular debt, not stable)
+    if (!isStable) {
+      setMarkets(prevMarkets => {
+        const newMarkets = new Map(prevMarkets);
+        const marketState = newMarkets.get(poolAddress);
+        if (marketState?.status === 'loaded' && marketState.data) {
+          const newBorrowed = marketState.data.totalBorrowed > amount
+            ? marketState.data.totalBorrowed - amount
+            : 0n;
+          newMarkets.set(poolAddress, {
+            ...marketState,
+            data: {
+              ...marketState.data,
+              totalBorrowed: newBorrowed,
+            },
+          });
+        }
+        return newMarkets;
+      });
+    } else {
+      // Update stable market supply (zUSD gets burned)
+      setStableMarkets(prevMarkets => {
+        const newMarkets = new Map(prevMarkets);
+        const marketState = newMarkets.get(poolAddress);
+        if (marketState?.status === 'loaded' && marketState.data) {
+          const newSupplied = marketState.data.totalSupplied > amount
+            ? marketState.data.totalSupplied - amount
+            : 0n;
+          newMarkets.set(poolAddress, {
+            ...marketState,
+            data: {
+              ...marketState.data,
+              totalSupplied: newSupplied,
+            },
+          });
+        }
+        return newMarkets;
+      });
+    }
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingDebtIndex = prev.debt.findIndex(
+        d => d.poolAddress === poolAddress && d.isStable === isStable
+      );
+      if (existingDebtIndex < 0) return prev;
+
+      const existingDebtPos = prev.debt[existingDebtIndex];
+      const newBalance = existingDebtPos.balance > amount ? existingDebtPos.balance - amount : 0n;
+
+      let newDebt: DebtPosition[];
+      if (newBalance === 0n) {
+        // Remove the position
+        newDebt = prev.debt.filter((_, i) => i !== existingDebtIndex);
+      } else {
+        // Update the position
+        newDebt = [...prev.debt];
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        // Calculate new principal (subtract from principal first, then interest if needed)
+        const principalReduction = amount > existingDebtPos.interest
+          ? amount - existingDebtPos.interest
+          : 0n;
+        const newPrincipal = existingDebtPos.principal > principalReduction
+          ? existingDebtPos.principal - principalReduction
+          : 0n;
+        const newInterest = existingDebtPos.interest > amount
+          ? existingDebtPos.interest - amount
+          : 0n;
+
+        newDebt[existingDebtIndex] = {
+          ...existingDebtPos,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+          principal: newPrincipal,
+          interest: newInterest,
+          // Health factor improves with less debt - would need to recalculate properly
+          // For now, increase it proportionally
+          healthFactor: existingDebtPos.healthFactor * (1 + Number(amount) / Number(existingDebtPos.balance)),
+        };
+      }
+
+      const totals = recalculatePortfolioTotals(prev.loans, prev.collateral, newDebt);
+      return { ...prev, debt: newDebt, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic repay applied:', { poolAddress, amount: amount.toString(), isStable });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic withdraw collateral - removes from collateral positions
+  const optimisticWithdrawCollateral = useCallback((params: OptimisticWithdrawCollateralParams) => {
+    const { poolAddress, amount, collateralAsset, tokenPrice, isStable } = params;
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingCollateralIndex = prev.collateral.findIndex(
+        c => c.poolAddress === poolAddress && c.isStable === isStable
+      );
+      if (existingCollateralIndex < 0) return prev;
+
+      const existingCollateralPos = prev.collateral[existingCollateralIndex];
+      const newBalance = existingCollateralPos.balance > amount
+        ? existingCollateralPos.balance - amount
+        : 0n;
+
+      let newCollateral: CollateralPosition[];
+      if (newBalance === 0n) {
+        // Remove the position
+        newCollateral = prev.collateral.filter((_, i) => i !== existingCollateralIndex);
+      } else {
+        // Update the position
+        newCollateral = [...prev.collateral];
+        const newBalanceUSD = (Number(newBalance) / 1e18) * (Number(tokenPrice) / 1e4);
+        newCollateral[existingCollateralIndex] = {
+          ...existingCollateralPos,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+        };
+      }
+
+      // Also update health factor on related debt positions
+      const newDebt = prev.debt.map(d => {
+        if (d.poolAddress === poolAddress && d.isStable === isStable) {
+          // Health factor decreases with less collateral
+          const collateralRatio = Number(newBalance) / Number(existingCollateralPos.balance);
+          return {
+            ...d,
+            healthFactor: d.healthFactor * collateralRatio,
+          };
+        }
+        return d;
+      });
+
+      const totals = recalculatePortfolioTotals(prev.loans, newCollateral, newDebt);
+      return { ...prev, collateral: newCollateral, debt: newDebt, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic withdraw collateral applied:', { poolAddress, amount: amount.toString(), isStable });
+  }, [recalculatePortfolioTotals]);
+
+  // Optimistic mint - adds to debt positions and stable market supply
+  const optimisticMint = useCallback((params: OptimisticMintParams) => {
+    const { poolAddress, amount, collateralAsset, healthFactor } = params;
+    // zUSD is always $1
+    const balanceUSD = Number(amount) / 1e18;
+
+    // Update stable market data
+    setStableMarkets(prevMarkets => {
+      const newMarkets = new Map(prevMarkets);
+      const marketState = newMarkets.get(poolAddress);
+      if (marketState?.status === 'loaded' && marketState.data) {
+        newMarkets.set(poolAddress, {
+          ...marketState,
+          data: {
+            ...marketState.data,
+            totalSupplied: marketState.data.totalSupplied + amount,
+          },
+        });
+      }
+      return newMarkets;
+    });
+
+    // Update portfolio
+    setPortfolioData(prev => {
+      const existingDebtIndex = prev.debt.findIndex(d => d.poolAddress === poolAddress && d.isStable);
+      let newDebt: DebtPosition[];
+
+      if (existingDebtIndex >= 0) {
+        // Update existing debt
+        newDebt = [...prev.debt];
+        const existingDebtPos = newDebt[existingDebtIndex];
+        const newBalance = existingDebtPos.balance + amount;
+        const newBalanceUSD = Number(newBalance) / 1e18; // zUSD is always $1
+        newDebt[existingDebtIndex] = {
+          ...existingDebtPos,
+          balance: newBalance,
+          balanceUSD: newBalanceUSD,
+          principal: existingDebtPos.principal + amount,
+          healthFactor,
+        };
+      } else {
+        // Add new debt position
+        newDebt = [...prev.debt, {
+          symbol: 'ZUSD',
+          loanAsset: 'zusd',
+          collateralAsset: collateralAsset.toLowerCase(),
+          balance: amount,
+          balanceUSD,
+          poolAddress,
+          apy: DEBT_APY,
+          healthFactor,
+          principal: amount,
+          interest: 0n,
+          isStable: true,
+        }];
+      }
+
+      const totals = recalculatePortfolioTotals(prev.loans, prev.collateral, newDebt);
+      return { ...prev, debt: newDebt, ...totals };
+    });
+
+    console.log('[DataContext] Optimistic mint applied:', { poolAddress, amount: amount.toString() });
+  }, [recalculatePortfolioTotals]);
+
   // ==================== Context Value ====================
   const value = useMemo<DataContextValue>(() => ({
     prices,
@@ -877,6 +1386,13 @@ export function DataProvider({ children }: PropsWithChildren) {
     refetchPrices: fetchPrices,
     refetchMarkets: fetchMarkets,
     refetchPortfolio: fetchPortfolio,
+    optimisticSupply,
+    optimisticBorrow,
+    optimisticCollateralize,
+    optimisticWithdrawLoan,
+    optimisticRepay,
+    optimisticWithdrawCollateral,
+    optimisticMint,
   }), [
     prices,
     pricesLoaded,
@@ -890,6 +1406,13 @@ export function DataProvider({ children }: PropsWithChildren) {
     fetchPrices,
     fetchMarkets,
     fetchPortfolio,
+    optimisticSupply,
+    optimisticBorrow,
+    optimisticCollateralize,
+    optimisticWithdrawLoan,
+    optimisticRepay,
+    optimisticWithdrawCollateral,
+    optimisticMint,
   ]);
 
   return (

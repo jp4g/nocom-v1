@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { parseTokenAmount } from '@/lib/utils';
-import { useDataContext, StableMarketWithContract } from '@/contexts/DataContext';
+import { useDataContext, StableMarketWithContract, OptimisticMintParams } from '@/contexts/DataContext';
 import { useStableEscrow } from '@/hooks/useStableEscrow';
 import { mintStable } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -63,7 +63,7 @@ export default function StableBorrowModal({
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  const { prices, portfolioData } = useDataContext();
+  const { prices, portfolioData, optimisticMint } = useDataContext();
 
   // Get stable escrow contract for this market
   const { escrowContract, isLoading: isEscrowLoading } = useStableEscrow(market.poolAddress);
@@ -251,6 +251,14 @@ export default function StableBorrowModal({
         )
       );
       console.log('Mint transaction receipt:', txReceipt);
+
+      // Apply optimistic update
+      optimisticMint({
+        poolAddress: market.poolAddress,
+        amount,
+        collateralAsset: market.collateralAsset,
+        healthFactor: healthAfterMint,
+      });
 
       toast.success(`Successfully minted ${inputValue} zUSD`);
       onClose();

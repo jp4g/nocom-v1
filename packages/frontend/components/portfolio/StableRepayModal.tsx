@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { NocomStableEscrowV1Contract, TokenContract } from '@nocom-v1/contracts/artifacts';
-import { DebtPosition } from '@/contexts/DataContext';
+import { DebtPosition, useDataContext } from '@/contexts/DataContext';
 import { parseTokenAmount } from '@/lib/utils';
 import { repayDebtByBurn } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -37,6 +37,8 @@ export default function StableRepayModal({
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  const { optimisticRepay } = useDataContext();
 
   // Fetch user's wallet balance for the stable token (zUSD)
   const { balance: walletBalance, isLoading: isBalanceLoading } = useBalance(
@@ -123,7 +125,7 @@ export default function StableRepayModal({
   }, [inputValue, totalDebt, walletBalance]);
 
   const handleRepay = async () => {
-    if (!isValidInput || !wallet || !userAddress || !stableEscrowContract || !stableTokenContract || !poolAddress) return;
+    if (!isValidInput || !wallet || !userAddress || !stableEscrowContract || !stableTokenContract || !poolAddress || !debtPosition) return;
 
     setIsProcessing(true);
 
@@ -144,7 +146,16 @@ export default function StableRepayModal({
       );
       console.log('Stable repay transaction receipt:', txReceipt);
 
-      toast.success(`Successfully repaid ${inputValue} ${debtPosition?.symbol}`);
+      // Apply optimistic update (zUSD is always $1 = 10000n in 4 decimal price format)
+      optimisticRepay({
+        poolAddress: debtPosition.poolAddress,
+        amount,
+        loanAsset: debtPosition.symbol,
+        tokenPrice: 10000n, // zUSD is always $1
+        isStable: true,
+      });
+
+      toast.success(`Successfully repaid ${inputValue} ${debtPosition.symbol}`);
       onClose();
     } catch (error) {
       console.error('Stable repay error:', error);

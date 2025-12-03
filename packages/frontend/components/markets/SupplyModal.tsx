@@ -12,11 +12,13 @@ import { supplyLiquidity } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { parseTokenAmount } from '@/lib/utils';
 import { useWallet } from '@/hooks/useWallet';
+import { useDataContext } from '@/contexts/DataContext';
 
 type SupplyModalProps = {
   open: boolean;
   onClose: () => void;
   debtTokenName: string;
+  collateralAsset: string;
   tokenContract: TokenContract;
   poolContract: NocomLendingPoolV1Contract;
   wallet: BaseWallet | undefined;
@@ -27,6 +29,7 @@ export default function SupplyModal({
   open,
   onClose,
   debtTokenName,
+  collateralAsset,
   tokenContract,
   poolContract,
   wallet,
@@ -38,6 +41,9 @@ export default function SupplyModal({
 
   // Get trackSuppliedPool from wallet context
   const { trackSuppliedPool } = useWallet();
+
+  // Get optimistic update function and prices from data context
+  const { optimisticSupply, prices } = useDataContext();
 
   // Fetch user's balance for this token
   const { balance, isLoading: isBalanceLoading, error: balanceError } = useBalance(
@@ -125,6 +131,19 @@ export default function SupplyModal({
 
       // Track this pool as one the user has supplied to
       trackSuppliedPool(poolContract.address.toString());
+
+      // Apply optimistic update
+      const tokenAddress = tokenContract.address.toString();
+      const priceState = prices.get(tokenAddress);
+      const tokenPrice = priceState?.status === 'loaded' && priceState.price ? priceState.price : 10000n;
+
+      optimisticSupply({
+        poolAddress: poolContract.address.toString(),
+        amount,
+        loanAsset: debtTokenName,
+        collateralAsset,
+        tokenPrice,
+      });
 
       toast.success(`Successfully supplied ${inputValue} ${debtTokenName}`);
       onClose();

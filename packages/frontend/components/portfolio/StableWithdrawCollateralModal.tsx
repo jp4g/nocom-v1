@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { NocomStableEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
-import { CollateralPosition, DebtPosition, useDataContext } from '@/contexts/DataContext';
+import { CollateralPosition, DebtPosition, useDataContext, OptimisticWithdrawCollateralParams } from '@/contexts/DataContext';
 import { parseTokenAmount } from '@/lib/utils';
 import { withdrawStableCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -58,7 +58,7 @@ export default function StableWithdrawCollateralModal({
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  const { prices, portfolioData } = useDataContext();
+  const { prices, portfolioData, optimisticWithdrawCollateral } = useDataContext();
 
   useEffect(() => {
     setMounted(true);
@@ -249,7 +249,7 @@ export default function StableWithdrawCollateralModal({
   const isHealthUnsafe = currentDebt > 0n && healthAfterWithdraw < 1.0 && healthAfterWithdraw > 0 && inputValue !== '';
 
   const handleWithdraw = async () => {
-    if (!isValidInput || !wallet || !userAddress || !stableEscrowContract) return;
+    if (!isValidInput || !wallet || !userAddress || !stableEscrowContract || !collateralPosition) return;
 
     setIsProcessing(true);
 
@@ -274,7 +274,16 @@ export default function StableWithdrawCollateralModal({
       );
       console.log('Stable withdraw collateral transaction receipt:', txReceipt);
 
-      toast.success(`Successfully withdrew ${inputValue} ${collateralPosition?.symbol}`);
+      // Apply optimistic update
+      optimisticWithdrawCollateral({
+        poolAddress: collateralPosition.poolAddress,
+        amount,
+        collateralAsset: collateralPosition.symbol,
+        tokenPrice: collateralPrice,
+        isStable: true,
+      });
+
+      toast.success(`Successfully withdrew ${inputValue} ${collateralPosition.symbol}`);
       onClose();
     } catch (error) {
       console.error('Stable withdraw collateral error:', error);

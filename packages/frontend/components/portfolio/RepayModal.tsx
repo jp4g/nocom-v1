@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { NocomEscrowV1Contract, TokenContract } from '@nocom-v1/contracts/artifacts';
-import { DebtPosition } from '@/contexts/DataContext';
+import { DebtPosition, useDataContext } from '@/contexts/DataContext';
 import { parseTokenAmount } from '@/lib/utils';
 import { repayDebt } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -37,6 +37,8 @@ export default function RepayModal({
   const [inputValue, setInputValue] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [mounted, setMounted] = useState(false);
+
+  const { optimisticRepay, prices } = useDataContext();
 
   // Fetch user's wallet balance for the debt token
   const { balance: walletBalance, isLoading: isBalanceLoading } = useBalance(
@@ -123,7 +125,7 @@ export default function RepayModal({
   }, [inputValue, totalDebt, walletBalance]);
 
   const handleRepay = async () => {
-    if (!isValidInput || !wallet || !userAddress || !escrowContract || !debtTokenContract || !poolAddress) return;
+    if (!isValidInput || !wallet || !userAddress || !escrowContract || !debtTokenContract || !poolAddress || !debtPosition) return;
 
     setIsProcessing(true);
 
@@ -143,7 +145,30 @@ export default function RepayModal({
       );
       console.log('Repay transaction receipt:', txReceipt);
 
-      toast.success(`Successfully repaid ${inputValue} ${debtPosition?.symbol}`);
+      // Apply optimistic update
+      // Get the token price from prices map
+      let tokenPrice = 10000n; // Default to $1
+      for (const [, priceState] of prices.entries()) {
+        if (priceState.status === 'loaded' && priceState.price !== undefined) {
+          if (debtPosition.symbol.toUpperCase() === 'ZEC' && priceState.price !== 10000n) {
+            tokenPrice = priceState.price;
+            break;
+          } else if (debtPosition.symbol.toUpperCase() === 'USDC') {
+            tokenPrice = 10000n;
+            break;
+          }
+        }
+      }
+
+      optimisticRepay({
+        poolAddress: debtPosition.poolAddress,
+        amount,
+        loanAsset: debtPosition.symbol,
+        tokenPrice,
+        isStable: false,
+      });
+
+      toast.success(`Successfully repaid ${inputValue} ${debtPosition.symbol}`);
       onClose();
     } catch (error) {
       console.error('Repay error:', error);

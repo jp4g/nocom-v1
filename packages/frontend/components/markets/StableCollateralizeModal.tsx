@@ -13,6 +13,8 @@ import { setStableEscrowData } from '@/lib/storage/stableEscrowStorage';
 import { deployStableEscrowContract, depositStableCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { parseTokenAmount } from '@/lib/utils';
+import { useDataContext } from '@/contexts/DataContext';
+import { ZCASH_LTV } from '@nocom-v1/contracts/constants';
 
 type StableCollateralizeModalProps = {
   open: boolean;
@@ -39,6 +41,8 @@ export default function StableCollateralizeModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+
+  const { optimisticCollateralize, prices } = useDataContext();
 
   // Fetch user's balance for the collateral token
   const { balance, isLoading: isBalanceLoading, error: balanceError } = useBalance(
@@ -195,6 +199,22 @@ export default function StableCollateralizeModal({
         )
       );
       console.log('Collateralization transaction receipt:', txReceipt);
+
+      // Apply optimistic update
+      const tokenAddress = collateralTokenContract.address.toString();
+      const priceState = prices.get(tokenAddress);
+      const tokenPrice = priceState?.status === 'loaded' && priceState.price ? priceState.price : 10000n;
+      const collateralFactor = Number(ZCASH_LTV) / 100000; // Stable pools use ZEC as collateral
+
+      optimisticCollateralize({
+        poolAddress: poolContract.address.toString(),
+        amount,
+        loanAsset: 'zusd', // Stable pool loan asset is zUSD
+        collateralAsset: collateralTokenName,
+        tokenPrice,
+        collateralFactor,
+        isStable: true,
+      });
 
       toast.success(`Successfully collateralized ${inputValue} ${collateralTokenName}`);
       onClose();

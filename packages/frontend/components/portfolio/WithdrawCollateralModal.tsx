@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
-import { CollateralPosition, DebtPosition, useDataContext } from '@/contexts/DataContext';
+import { CollateralPosition, DebtPosition, useDataContext, OptimisticWithdrawCollateralParams } from '@/contexts/DataContext';
 import { parseTokenAmount } from '@/lib/utils';
 import { withdrawCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -66,7 +66,7 @@ export default function WithdrawCollateralModal({
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  const { prices, portfolioData } = useDataContext();
+  const { prices, portfolioData, optimisticWithdrawCollateral } = useDataContext();
 
   useEffect(() => {
     setMounted(true);
@@ -295,7 +295,7 @@ export default function WithdrawCollateralModal({
   const isHealthUnsafe = currentDebt > 0n && healthAfterWithdraw < 1.0 && healthAfterWithdraw > 0 && inputValue !== '';
 
   const handleWithdraw = async () => {
-    if (!isValidInput || !wallet || !userAddress || !escrowContract) return;
+    if (!isValidInput || !wallet || !userAddress || !escrowContract || !collateralPosition) return;
 
     setIsProcessing(true);
 
@@ -310,7 +310,7 @@ export default function WithdrawCollateralModal({
         collateralPrice,
         debtPrice
       });
-      
+
       const txReceipt = await simulationQueue.enqueue(() =>
         withdrawCollateral(
           userAddress,
@@ -322,7 +322,16 @@ export default function WithdrawCollateralModal({
       );
       console.log('Withdraw collateral transaction receipt:', txReceipt);
 
-      toast.success(`Successfully withdrew ${inputValue} ${collateralPosition?.symbol}`);
+      // Apply optimistic update
+      optimisticWithdrawCollateral({
+        poolAddress: collateralPosition.poolAddress,
+        amount,
+        collateralAsset: collateralPosition.symbol,
+        tokenPrice: collateralPrice,
+        isStable: false,
+      });
+
+      toast.success(`Successfully withdrew ${inputValue} ${collateralPosition.symbol}`);
       onClose();
     } catch (error) {
       console.error('Withdraw collateral error:', error);

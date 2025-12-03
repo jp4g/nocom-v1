@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
 import { parseTokenAmount } from '@/lib/utils';
-import { useDataContext, MarketWithContract } from '@/contexts/DataContext';
+import { useDataContext, MarketWithContract, OptimisticBorrowParams } from '@/contexts/DataContext';
 import { useEscrow } from '@/hooks/useEscrow';
 import { borrowFromPool } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
@@ -65,7 +65,7 @@ export default function BorrowModal({
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
-  const { prices, portfolioData, markets } = useDataContext();
+  const { prices, portfolioData, markets, optimisticBorrow } = useDataContext();
 
   // Get escrow contract for this market
   const { escrowContract, isLoading: isEscrowLoading } = useEscrow(market.poolAddress);
@@ -303,6 +303,16 @@ export default function BorrowModal({
         )
       );
       console.log('Borrow transaction receipt:', txReceipt);
+
+      // Apply optimistic update
+      optimisticBorrow({
+        poolAddress: market.poolAddress,
+        amount,
+        loanAsset: market.loanAsset,
+        collateralAsset: market.collateralAsset,
+        tokenPrice: debtPrice,
+        healthFactor: healthAfterBorrow,
+      });
 
       toast.success(`Successfully borrowed ${inputValue} ${market.loanAsset}`);
       onClose();

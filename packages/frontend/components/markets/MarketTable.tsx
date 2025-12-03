@@ -376,6 +376,7 @@ export default function MarketTable({ marketType }: MarketTableProps) {
             open={supplyModalOpen}
             onClose={() => setSupplyModalOpen(false)}
             debtTokenName={selectedMarket.loanAsset}
+            collateralAsset={selectedMarket.collateralAsset}
             tokenContract={
               selectedMarket.loanAsset === 'USDC'
                 ? contracts.tokens.usdc
@@ -389,6 +390,7 @@ export default function MarketTable({ marketType }: MarketTableProps) {
             open={collateralizeModalOpen}
             onClose={() => setCollateralizeModalOpen(false)}
             collateralTokenName={selectedMarket.collateralAsset}
+            loanAsset={selectedMarket.loanAsset}
             collateralTokenContract={
               selectedMarket.collateralAsset === 'USDC'
                 ? contracts.tokens.usdc

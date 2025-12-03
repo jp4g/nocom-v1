@@ -13,11 +13,14 @@ import { setEscrowData } from '@/lib/storage/escrowStorage';
 import { deployEscrowContract, depositCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { parseTokenAmount } from '@/lib/utils';
+import { useDataContext } from '@/contexts/DataContext';
+import { USDC_LTV, ZCASH_LTV } from '@nocom-v1/contracts/constants';
 
 type CollateralizeModalProps = {
   open: boolean;
   onClose: () => void;
   collateralTokenName: string;
+  loanAsset: string;
   collateralTokenContract: TokenContract;
   debtTokenAddress: AztecAddress;
   poolContract: NocomLendingPoolV1Contract;
@@ -29,6 +32,7 @@ export default function CollateralizeModal({
   open,
   onClose,
   collateralTokenName,
+  loanAsset,
   collateralTokenContract,
   debtTokenAddress,
   poolContract,
@@ -39,6 +43,8 @@ export default function CollateralizeModal({
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+
+  const { optimisticCollateralize, prices } = useDataContext();
 
   // Fetch user's balance for the collateral token
   const { balance, isLoading: isBalanceLoading, error: balanceError } = useBalance(
@@ -195,6 +201,24 @@ export default function CollateralizeModal({
         )
       );
       console.log('Collateralization transaction receipt:', txReceipt);
+
+      // Apply optimistic update
+      const tokenAddress = collateralTokenContract.address.toString();
+      const priceState = prices.get(tokenAddress);
+      const tokenPrice = priceState?.status === 'loaded' && priceState.price ? priceState.price : 10000n;
+      const collateralFactor = collateralTokenName.toUpperCase() === 'USDC'
+        ? Number(USDC_LTV) / 100000
+        : Number(ZCASH_LTV) / 100000;
+
+      optimisticCollateralize({
+        poolAddress: poolContract.address.toString(),
+        amount,
+        loanAsset,
+        collateralAsset: collateralTokenName,
+        tokenPrice,
+        collateralFactor,
+        isStable: false,
+      });
 
       toast.success(`Successfully collateralized ${inputValue} ${collateralTokenName}`);
       onClose();
