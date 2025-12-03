@@ -8,9 +8,12 @@ import { Market, MarketDataState, AggregateMarketData } from '@/lib/types';
 import { NocomLendingPoolV1Contract, NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
-import { batchSimulateDebtPosition } from '@/lib/contract/position';
-import { EPOCH_LENGTH } from '@nocom-v1/contracts/constants';
+import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
+import { EPOCH_LENGTH, USDC_LTV, ZCASH_LTV, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
+import { math } from '@nocom-v1/contracts/utils';
+
+const { calculateLtvHealth } = math;
 
 const BATCH_SIZE = 4;
 const REFRESH_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -59,6 +62,8 @@ export interface CollateralPosition extends PortfolioPosition {
 export interface DebtPosition extends PortfolioPosition {
   apy: number;
   healthFactor: number;
+  principal: bigint;
+  interest: bigint;
 }
 
 export interface PortfolioState {
@@ -112,7 +117,7 @@ const defaultPortfolioData: PortfolioData = {
 const DataContext = createContext<DataContextValue | undefined>(undefined);
 
 export function DataProvider({ children }: PropsWithChildren) {
-  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts } = useWallet();
+  const { contracts, wallet: walletHandle, activeAccount, node, escrowContracts, suppliedPools } = useWallet();
 
   const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
   const userAddress = useMemo(() =>
@@ -398,8 +403,59 @@ export function DataProvider({ children }: PropsWithChildren) {
       console.log('[DataContext] Found', marketsWithEscrows.length, 'markets with escrows');
 
       // Initialize empty arrays for positions
+      const loanPositions: LoanPosition[] = [];
       const collateralPositions: CollateralPosition[] = [];
       const debtPositions: DebtPosition[] = [];
+
+      // Fetch loan positions only for pools the user has supplied to
+      const marketsWithSupplies = marketConfigs.filter(m => suppliedPools.has(m.poolAddress));
+      const suppliedMarketContracts = marketsWithSupplies.map(m => m.contract);
+      console.log('[DataContext] Fetching loan positions for', suppliedMarketContracts.length, 'supplied pools (out of', marketConfigs.length, 'total)');
+
+      // Only fetch loan positions if user has supplied to any pools
+      const loanResults = suppliedMarketContracts.length > 0
+        ? await batchSimulateLoanPosition(
+            suppliedMarketContracts,
+            wallet,
+            userAddress,
+            currentEpoch
+          )
+        : new Map();
+
+      // Map loan results to UI positions
+      loanResults.forEach((loanPosition, poolAddress) => {
+        const marketConfig = marketConfigs.find(
+          m => m.poolAddress === poolAddress.toString()
+        );
+        if (!marketConfig) return;
+
+        // Get the price for the loan asset
+        const loanTokenAddress = contracts?.tokens[
+          marketConfig.loanAsset.toLowerCase() as 'usdc' | 'zec'
+        ]?.address?.toString();
+        const loanPriceState = loanTokenAddress ? prices.get(loanTokenAddress) : undefined;
+        const loanPrice = loanPriceState?.status === 'loaded' && loanPriceState.price
+          ? Number(loanPriceState.price) / 1e4
+          : 0;
+
+        // Create loan position if there's a loan
+        const totalLoan = loanPosition.principal + loanPosition.interest;
+        if (totalLoan > 0n) {
+          const loanBalanceUSD = (Number(totalLoan) / 1e18) * loanPrice;
+
+          loanPositions.push({
+            symbol: marketConfig.loanAsset.toUpperCase(),
+            loanAsset: marketConfig.loanAsset.toLowerCase(),
+            collateralAsset: marketConfig.collateralAsset.toLowerCase(),
+            balance: totalLoan,
+            balanceUSD: loanBalanceUSD,
+            poolAddress: marketConfig.poolAddress,
+            apy: LOAN_APY,
+          });
+        }
+      });
+
+      console.log('[DataContext] Loan positions fetched:', loanPositions.length);
 
       // Fetch debt positions if we have any markets with escrows
       if (marketsWithEscrows.length > 0) {
@@ -459,6 +515,32 @@ export function DataProvider({ children }: PropsWithChildren) {
           if (totalDebt > 0n) {
             const debtBalanceUSD = (Number(totalDebt) / 1e18) * loanPrice;
 
+            // Calculate health factor using raw bigint prices
+            const collateralPriceBigint = collateralPriceState?.status === 'loaded' && collateralPriceState.price
+              ? collateralPriceState.price
+              : 10000n; // Default to $1
+            const loanPriceBigint = loanPriceState?.status === 'loaded' && loanPriceState.price
+              ? loanPriceState.price
+              : 10000n; // Default to $1
+
+            // Get max LTV based on collateral asset
+            const maxLtv = marketConfig.collateralAsset.toUpperCase() === 'USDC' ? USDC_LTV : ZCASH_LTV;
+
+            // Calculate health factor (raw value is scaled by HEALTH_FACTOR_THRESHOLD where 100000 = 1.0)
+            let healthFactor = 0; // Default to 0 if no collateral (critical)
+            if (contractPosition.collateral > 0n && totalDebt > 0n) {
+              const healthRaw = calculateLtvHealth(
+                loanPriceBigint,
+                totalDebt,
+                collateralPriceBigint,
+                contractPosition.collateral,
+                maxLtv
+              );
+              // If healthRaw is 0 but we have collateral and debt, the debt is so small
+              // that it rounded to 0 in integer math - treat as infinite health
+              healthFactor = healthRaw === 0n ? Infinity : Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
+            }
+
             debtPositions.push({
               symbol: marketConfig.loanAsset.toUpperCase(),
               loanAsset: marketConfig.loanAsset.toLowerCase(),
@@ -467,15 +549,13 @@ export function DataProvider({ children }: PropsWithChildren) {
               balanceUSD: debtBalanceUSD,
               poolAddress: marketConfig.poolAddress,
               apy: DEBT_APY,
-              healthFactor: 1, // Hardcoded for now
+              healthFactor,
+              principal: contractPosition.principal,
+              interest: contractPosition.interest,
             });
           }
         });
       }
-
-      // Loans will be populated later when the loan position API is available
-      // For now, return empty loans
-      const loanPositions: LoanPosition[] = [];
 
       // Calculate totals
       const totalLoansUSD = loanPositions.reduce((sum, pos) => sum + pos.balanceUSD, 0);
@@ -510,7 +590,7 @@ export function DataProvider({ children }: PropsWithChildren) {
     } finally {
       isFetchingPortfolioRef.current = false;
     }
-  }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, ensurePricesLoaded]);
+  }, [marketConfigs, wallet, userAddress, node, contracts, prices, escrowContracts, suppliedPools, ensurePricesLoaded]);
 
   // ==================== Initial fetch for prices and markets (global data) ====================
   // This runs once when wallet is ready. The callbacks check userAddressRef internally.

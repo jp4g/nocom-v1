@@ -5,6 +5,16 @@ export const formatCurrency = (value: number): string => {
   return `$${value.toFixed(2)}`;
 };
 
+/**
+ * Parse a decimal string input to bigint with 18 decimals.
+ * e.g., "1.5" -> 1500000000000000000n
+ */
+export const parseTokenAmount = (input: string): bigint => {
+  const [whole, decimal = ''] = input.split('.');
+  const paddedDecimal = decimal.padEnd(18, '0').slice(0, 18);
+  return BigInt((whole || '0') + paddedDecimal);
+};
+
 export const getAssetColor = (symbol: string): string => {
   const colors: Record<string, string> = {
     'USDC': 'bg-blue-500',

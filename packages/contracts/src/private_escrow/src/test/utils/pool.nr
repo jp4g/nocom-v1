@@ -1,5 +1,5 @@
 use aztec::test::helpers::txe_oracles;
-use nocom_pool::utils::constants::EPOCH_LENGTH;
+use nocom_pool_common::constants::EPOCH_LENGTH;
 
 /**
  * Gets the next epoch number based on the last known block timestamp via TXE oracle

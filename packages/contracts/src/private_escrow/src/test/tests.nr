@@ -13,10 +13,8 @@ use crate::{
     NocomEscrowV1
 };
 use token_contract::Token;
-use nocom_pool::{
-    utils::{math, constants},
-    NocomLendingPoolV1
-};
+use nocom_pool::NocomLendingPoolV1;
+use nocom_pool_common::{math, constants};
 use mock_price_feed::MockPriceFeed;
 
 #[test]
@@ -99,30 +97,27 @@ unconstrained fn test_liquidation() {
 
     // 3. supply 20 ZEC as collateral from borrower escrow to the pool
     let borrower_collateral_amount = 20 * constants::WAD;
-    // 3a. approve the lending pool to spend borrower's ZEC
+    // 3a. approve the escrow to spend borrower's ZEC
     // Safety: ignore
     let collateral_authwit_nonce = unsafe { random() };
     let borrower_collateral_approve_call_iface = Token::at(contracts.zcash)
-        .transfer_private_to_public(
+        .transfer_private_to_private(
             accounts.borrower,
-            contracts.lending_pool,
+            contracts.borrower_escrow,
             borrower_collateral_amount,
             collateral_authwit_nonce
         );
     add_private_authwit_from_call_interface(
         *env,
         accounts.borrower,
-        contracts.lending_pool,
+        contracts.borrower_escrow,
         borrower_collateral_approve_call_iface
     );
     // 3b. supply the collateral to the pool
     env.call_private(
         accounts.borrower,
         NocomEscrowV1::at(contracts.borrower_escrow)
-            .supply_collateral(
-                borrower_collateral_amount,
-                collateral_authwit_nonce
-            )
+            .supply_collateral(borrower_collateral_amount, collateral_authwit_nonce)
     );
     // 3c. check token balances
     let borrower_zec_balance_after_collateral = env.simulate_utility(
@@ -133,12 +128,12 @@ unconstrained fn test_liquidation() {
         borrower_zec_balance_after_collateral == expected_borrower_zec_balance_after_collateral,
         "Borrower ZEC balance incorrect after supplying collateral"
     );
-    let pool_zec_balance_after_collateral = env.view_public(
-        Token::at(contracts.zcash).balance_of_public(contracts.lending_pool)
+    let escrow_zec_balance_after_collateral = env.simulate_utility(
+        Token::at(contracts.zcash).balance_of_private(contracts.borrower_escrow)
     );
     assert(
-        pool_zec_balance_after_collateral == borrower_collateral_amount,
-        "Lending pool ZEC balance incorrect after borrower supplying collateral"
+        escrow_zec_balance_after_collateral == borrower_collateral_amount,
+        "Borrower escrow ZEC balance incorrect after supplying collateral"
     );
 
     // 4. borrow USDC against the collateral
@@ -272,21 +267,6 @@ unconstrained fn test_liquidation() {
         collateral_note_after_liquidation.amount as Field,
         loan_note_after_liquidation.amount as Field
     ]);
-
-    // let (ltv_after_liquidation, liquidation_health_after_liquidation) = env.simulate_utility(
-    //     NocomLendingPoolV1::at(contracts.lending_pool)
-    //         .get_health_factor(
-    //             contracts.borrower_escrow,
-    //             expected_borrow_epoch,
-    //             zec_asserted_price,
-    //             usdc_asserted_price
-    //         )
-    // );
-
-    // debug_log_format("ltv after liquidation: {0}\nliq threshold after liquidation: {1}", [
-    //     ltv_after_liquidation as Field,
-    //     liquidation_health_after_liquidation as Field
-    // ]);
 }
 
 // test cases:

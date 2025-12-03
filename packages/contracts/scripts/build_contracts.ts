@@ -35,7 +35,7 @@ async function main() {
 
     // copy the artifacts to the contracts artifacts dir
     console.log("Copying token artifacts...");
-    const artifactsPath = join(scriptDir, "../src/artifacts/");
+    const artifactsPath = join(scriptDir, "../ts/src/artifacts/");
     await copyFileWithLog(
       join(contractsDir, "target/nocom_escrow-NocomEscrowV1.json"),
       join(artifactsPath, "escrow/NocomEscrow.json")

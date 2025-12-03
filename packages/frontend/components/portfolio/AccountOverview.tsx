@@ -1,6 +1,7 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { PortfolioState, LOAN_APY, DEBT_APY } from '@/contexts/DataContext';
 import { formatCurrency } from '@/lib/utils';
 
@@ -10,10 +11,12 @@ interface AccountOverviewProps {
   avgHealthFactor: number;
   totalLoansUSD: number;
   totalDebtUSD: number;
+  onRefresh: () => Promise<void>;
 }
 
 const getHealthColor = (hf: number, hasDebt: boolean) => {
-  if (!hasDebt) return 'text-white';
+  // Infinite health is always green (safe)
+  if (hf === Infinity || !hasDebt) return 'text-green-500';
   if (hf < 1.1) return 'text-red-500';
   if (hf < 1.5) return 'text-yellow-500';
   return 'text-green-500';
@@ -28,14 +31,26 @@ const getHealthBarPosition = (hf: number) => {
   return ((clamped - minHF) / (maxHF - minHF)) * 100;
 };
 
-export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, totalLoansUSD, totalDebtUSD }: AccountOverviewProps) {
-  // Calculate net APY: (loans * loanAPY - debt * debtAPY) / netWorth
-  const netApy = netWorthUSD !== 0
-    ? ((totalLoansUSD * LOAN_APY - totalDebtUSD * DEBT_APY) / netWorthUSD)
-    : 0;
+export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, totalLoansUSD, totalDebtUSD, onRefresh }: AccountOverviewProps) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Calculate net APY based on ratio of debt to loans
+  // Net APY = 4% (loan yield) - (debt/loans ratio) * 5% (borrow cost)
+  const netApy = totalLoansUSD > 0
+    ? (LOAN_APY - (totalDebtUSD / totalLoansUSD) * DEBT_APY)
+    : (totalDebtUSD > 0 ? -DEBT_APY : 0);
 
   const isLoading = state.status === 'loading';
   const healthIndicatorPosition = 100 - getHealthBarPosition(avgHealthFactor);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   return (
     <div className="mb-8 p-6 rounded-xl bg-gradient-to-b from-surface to-black border border-surface-border">
@@ -53,6 +68,14 @@ export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, t
               </>
             )}
           </div>
+          <button
+            onClick={handleRefresh}
+            disabled={isLoading || isRefreshing}
+            className="flex items-center gap-1.5 text-xs text-text-muted hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-1"
+          >
+            <RefreshCw className={`w-3 h-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
         </div>
 
         {/* Account Health Metrics */}
@@ -81,7 +104,7 @@ export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, t
                 <Loader2 className="w-4 h-4 animate-spin text-text-muted" />
               ) : (
                 <span className={`text-lg font-mono ${getHealthColor(avgHealthFactor, totalDebtUSD > 0)}`}>
-                  {totalDebtUSD > 0 ? avgHealthFactor.toFixed(2) : '0'}
+                  {totalDebtUSD > 0 ? (avgHealthFactor === Infinity ? '∞' : avgHealthFactor.toFixed(2)) : '∞'}
                 </span>
               )}
             </div>

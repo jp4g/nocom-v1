@@ -49,7 +49,7 @@ async function main() {
 
     // copy the artifacts to the contracts artifacts dir
     console.log("Copying token artifacts...");
-    const artifactsPath = join(scriptDir, "../packages/contracts/src/artifacts/token");
+    const artifactsPath = join(scriptDir, "../packages/contracts/ts/src/artifacts/token");
     const tokenArtifactPath = join(artifactsPath, "Token.json");
     const tokenBindingsPath = join(artifactsPath, "Token.ts");
     await copyFileWithLog(tokenArtifactDepsPath, tokenArtifactPath);

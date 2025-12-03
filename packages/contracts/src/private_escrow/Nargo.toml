@@ -9,3 +9,4 @@ token_contract = { git = "https://github.com/defi-wonderland/aztec-standards/", 
 poseidon = { git = "https://github.com/noir-lang/poseidon", tag = "v0.1.1" }
 nocom_pool = { path = "../lending_pool" }
 mock_price_feed = { path = "../price_oracle" }
+nocom_pool_common = { path = "../pool_common" }

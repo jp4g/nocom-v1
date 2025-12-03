@@ -2,5 +2,5 @@
 members = [
     "src/private_escrow",
     "src/price_oracle",
-    "src/lending_pool"
+    "src/lending_pool",
 ]

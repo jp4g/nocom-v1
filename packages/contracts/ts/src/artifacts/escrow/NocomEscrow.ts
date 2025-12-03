@@ -108,6 +108,9 @@ export class NocomEscrowV1Contract extends ContractBase {
     /** constructor(pool_address: struct, collateral_token_address: struct, loaned_token_address: struct) */
     constructor: ((pool_address: AztecAddressLike, collateral_token_address: AztecAddressLike, loaned_token_address: AztecAddressLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
+    /** get_config() */
+    get_config: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+
     /** liquidate(amount: integer, liquidation_authwit_nonce: field, asserted_collateral_token_price: integer, asserted_debt_token_price: integer) */
     liquidate: ((amount: (bigint | number), liquidation_authwit_nonce: FieldLike, asserted_collateral_token_price: (bigint | number), asserted_debt_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 

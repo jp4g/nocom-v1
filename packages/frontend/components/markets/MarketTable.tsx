@@ -247,8 +247,9 @@ export default function MarketTable() {
           <BorrowModal
             open={borrowModalOpen}
             onClose={() => setBorrowModalOpen(false)}
-            debtTokenName={selectedMarket.loanAsset}
-            availableToBorrow={500000000000000000n} // Mock: 0.5 token
+            market={selectedMarket}
+            wallet={wallet}
+            userAddress={address}
           />
         </>
       )}

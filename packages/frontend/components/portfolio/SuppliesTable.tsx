@@ -1,9 +1,14 @@
 'use client';
 
+import { useState, useMemo } from 'react';
 import Image from 'next/image';
 import { Loader2 } from 'lucide-react';
-import { LoanPosition, PortfolioState } from '@/contexts/DataContext';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+import { BaseWallet } from '@aztec/aztec.js/wallet';
+import { LoanPosition, PortfolioState, useDataContext } from '@/contexts/DataContext';
+import { useWallet } from '@/contexts/WalletContext';
 import { formatCurrency } from '@/lib/utils';
+import WithdrawModal from './WithdrawModal';
 
 interface SuppliesTableProps {
   state: PortfolioState;
@@ -38,7 +43,56 @@ const getAssetColor = (symbol: string) => {
 };
 
 export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTableProps) {
+  const { markets, marketConfigs } = useDataContext();
+  const { wallet, activeAccount } = useWallet();
+  const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
+  const [selectedPosition, setSelectedPosition] = useState<LoanPosition | null>(null);
+
+  const handleWithdrawClick = (position: LoanPosition) => {
+    setSelectedPosition(position);
+    setWithdrawModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setWithdrawModalOpen(false);
+    setSelectedPosition(null);
+  };
+
+  // Get market data for the selected position's pool
+  const selectedMarketData = selectedPosition
+    ? markets.get(selectedPosition.poolAddress)
+    : undefined;
+
+  // Get pool contract for the selected position
+  const selectedPoolContract = useMemo(() => {
+    if (!selectedPosition) return null;
+    const marketConfig = marketConfigs.find(m => m.poolAddress === selectedPosition.poolAddress);
+    return marketConfig?.contract ?? null;
+  }, [selectedPosition, marketConfigs]);
+
+  // Get user address as AztecAddress
+  const userAddress = useMemo(() =>
+    activeAccount?.address ? AztecAddress.fromString(activeAccount.address) : undefined,
+    [activeAccount?.address]
+  );
+
+  // Filter out positions with zero balance
+  const filteredPositions = useMemo(
+    () => positions.filter(p => p.balance > 0n),
+    [positions]
+  );
+
   return (
+    <>
+      <WithdrawModal
+        open={withdrawModalOpen}
+        onClose={handleCloseModal}
+        loanPosition={selectedPosition}
+        marketData={selectedMarketData?.status === 'loaded' ? selectedMarketData.data : undefined}
+        poolContract={selectedPoolContract}
+        wallet={wallet?.instance as BaseWallet | undefined}
+        userAddress={userAddress}
+      />
     <section className="bg-surface rounded-xl border border-surface-border flex flex-col overflow-hidden h-full">
       <div className="p-5 border-b border-surface-border flex justify-between items-center bg-surface-card">
         <h2 className="text-lg font-medium tracking-tight">Your Loans</h2>
@@ -70,7 +124,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
                 </td>
               </tr>
             ) : (
-              positions.map((item, index) => (
+              filteredPositions.map((item, index) => (
                 <tr key={`${item.symbol}-${index}`} className="group hover:bg-surface-hover transition-colors border-b border-surface-border last:border-0">
                   <td className="py-4 px-5">
                     <div className="flex items-center gap-3">
@@ -121,7 +175,10 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
                   </td>
                   <td className="py-4 px-5 text-right">
                     <div className="flex justify-end gap-2">
-                      <button className="px-3 py-1.5 text-xs font-medium bg-surface border border-surface-border hover:bg-surface-hover hover:text-white text-text-muted rounded transition-colors">
+                      <button
+                        onClick={() => handleWithdrawClick(item)}
+                        className="px-3 py-1.5 text-xs font-medium bg-surface border border-surface-border hover:bg-surface-hover hover:text-white text-text-muted rounded transition-colors"
+                      >
                         Withdraw
                       </button>
                     </div>
@@ -134,7 +191,7 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
       </div>
 
       {/* Empty State (Hidden when there are loans) */}
-      {state.status !== 'loading' && positions.length === 0 && (
+      {state.status !== 'loading' && filteredPositions.length === 0 && (
         <div className="py-12 flex flex-col items-center justify-center text-center">
           <div className="w-12 h-12 rounded-full bg-surface-border flex items-center justify-center mb-3">
             <svg className="w-6 h-6 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,5 +202,6 @@ export default function SuppliesTable({ state, positions, totalUSD }: SuppliesTa
         </div>
       )}
     </section>
+    </>
   );
 }

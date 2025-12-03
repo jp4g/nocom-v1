@@ -1,13 +1,20 @@
 /**
  * Local storage utility for managing escrow contract address mappings.
- * Maps userAddress -> debtPoolAddress -> escrowAddress.
+ * Maps userAddress -> debtPoolAddress -> { escrowAddress, secretKey }.
  * This allows different users to have their own escrow contracts per market.
+ * The secretKey is needed to re-register the escrow with the PXE on page reload.
  */
 
 const ESCROW_STORAGE_KEY = 'nocom_escrow_mappings';
 
+export interface EscrowData {
+  escrowAddress: string;
+  secretKey: string;
+  instance: string; // JSON stringified ContractInstanceWithAddress
+}
+
 export interface UserEscrowMapping {
-  [debtPoolAddress: string]: string; // debtPoolAddress -> escrowAddress
+  [debtPoolAddress: string]: EscrowData; // debtPoolAddress -> escrow data
 }
 
 export interface EscrowStorage {
@@ -39,9 +46,9 @@ export function getEscrowMappings(userAddress: string): UserEscrowMapping {
 }
 
 /**
- * Get escrow address for a specific user and debt pool
+ * Get escrow data for a specific user and debt pool
  */
-export function getEscrowAddress(userAddress: string, debtPoolAddress: string): string | undefined {
+export function getEscrowData(userAddress: string, debtPoolAddress: string): EscrowData | undefined {
   const userMappings = getEscrowMappings(userAddress);
   return userMappings[debtPoolAddress];
 }
@@ -49,7 +56,7 @@ export function getEscrowAddress(userAddress: string, debtPoolAddress: string): 
 /**
  * Store a new escrow mapping for a user
  */
-export function setEscrowAddress(userAddress: string, debtPoolAddress: string, escrowAddress: string): void {
+export function setEscrowData(userAddress: string, debtPoolAddress: string, escrowAddress: string, secretKey: string, instance: string): void {
   if (typeof window === 'undefined') return;
 
   try {
@@ -57,7 +64,7 @@ export function setEscrowAddress(userAddress: string, debtPoolAddress: string, e
     if (!allMappings[userAddress]) {
       allMappings[userAddress] = {};
     }
-    allMappings[userAddress][debtPoolAddress] = escrowAddress;
+    allMappings[userAddress][debtPoolAddress] = { escrowAddress, secretKey, instance };
     localStorage.setItem(ESCROW_STORAGE_KEY, JSON.stringify(allMappings));
     console.log('[escrowStorage] Stored escrow mapping:', { userAddress, debtPoolAddress, escrowAddress });
   } catch (error) {

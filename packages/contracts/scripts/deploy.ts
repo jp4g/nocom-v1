@@ -15,7 +15,6 @@ import { Fr } from "@aztec/foundation/fields";
 import { supplyLiquidity } from "../ts/src/contract/pool.ts";
 import { borrowFromPool, depositCollateral, registerEscrowWithPool } from "../ts/src/contract/escrow.ts";
 import type { SendInteractionOptions } from "@aztec/aztec.js/contracts";
-import { FeeJuicePaymentMethodWithClaim } from "@aztec/aztec.js/fee";
 
 const {
     AZTEC_NODE_URL = "http://localhost:8080",
@@ -93,7 +92,7 @@ async function main() {
     // 6. deploy the price oracle contract and set prices
     const priceOracle = await deployPriceOracleContract(wallet, adminAddress);
     const assetAddresses = [usdc.address, zcash.address];
-    const prices = [precision(1n, 4n), precision(500n, 4n)];
+    const prices = [precision(1n, 4n), precision(300n, 4n)];
     await updateOraclePrice(adminAddress, priceOracle, assetAddresses, prices);
 
     // 7. deploy the usdc -> zec lending pool contract
@@ -125,29 +124,8 @@ async function main() {
         USDC_LIQUIDATION_THRESHOLD
     );
 
-
-
     // 10. if population flag set, populate the market with additional accounts
     if (populateDeployment) {
-
-        // TODO: fee juice not working on sandbox >:(
-        // // 10a. claim fee juice
-        // const lenderAddress = managers[0]!.address;
-        // const borrowerAddress = managers[1]!.address;
-        // console.log("Claiming fee juice for population accounts...");
-        // for (let i = 0; i < claims.length; i++) {
-        //     const claimAndPay = new FeeJuicePaymentMethodWithClaim(
-        //         managers[i]!.address,
-        //         claims[i]!,
-        //     );
-        //     console.log("claim and pay method gotten, ", managers[i]!.address.toString())
-        //     const accountDeployMethod = await managers[i]!.getDeployMethod();
-        //     console.log("got deploy method");
-        //     await accountDeployMethod.send({
-        //         from: managers[i]!.address,
-        //         fee: { paymentMethod: claimAndPay },
-        //     }).wait();
-        // }
         
         // 10b. mint tokens to the population accounts
         console.log("Minting tokens to population accounts...");
@@ -201,7 +179,6 @@ async function main() {
             wallet,
             bobAddress,
             zecDebtEscrow,
-            zecDebtPool.address,
             usdc,
             precision(10_000_000n),
         );
@@ -209,7 +186,6 @@ async function main() {
             wallet,
             bobAddress,
             usdcDebtEscrow,
-            usdcDebtPool.address,
             zcash,
             precision(10_000n),
         );

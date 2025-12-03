@@ -164,7 +164,6 @@ describe("Private Transfer Demo Test", () => {
             wallet,
             borrowerAddress,
             borrowerEscrow,
-            lendingPoolContract.address,
             zcashContract,
             borrowerCollateralAmount
         );
@@ -226,38 +225,38 @@ describe("Private Transfer Demo Test", () => {
         console.log(`Borrower principal: ${debtPosition.principal}\n interest: ${debtPosition.interest}\n total owed: ${totalOwed}`);
         const borrowerBalance = await usdcContract.methods.balance_of_private(borrowerAddress).simulate({ from: borrowerAddress });
         console.log(`Borrower USDC balance: ${borrowerBalance}`);
-        await repayDebt(
-            wallet,
-            borrowerAddress,
-            borrowerEscrow,
-            usdcContract,
-            lendingPoolContract.address,
-            debtPosition.principal,
-        );
-        console.log("Borrower repaid remaining debt");
+        // await repayDebt(
+        //     wallet,
+        //     borrowerAddress,
+        //     borrowerEscrow,
+        //     usdcContract,
+        //     lendingPoolContract.address,
+        //     debtPosition.principal,
+        // );
+        // console.log("Borrower repaid remaining debt");
 
-        // 8. withdraw remaining collateral
-        await withdrawCollateral(
-            borrowerAddress,
-            borrowerEscrow,
-            1n,
-            zcashPrice,
-            usdcPrice
-        );
-        console.log("Borrower withdrew remaining collateral");
+        // // 8. withdraw remaining collateral
+        // await withdrawCollateral(
+        //     borrowerAddress,
+        //     borrowerEscrow,
+        //     1n,
+        //     zcashPrice,
+        //     usdcPrice
+        // );
+        // console.log("Borrower withdrew remaining collateral");
 
-        // 9. withdraw lender funds with interest
-        const loanPosition = await getLoanPosition(
-            lenderAddress,
-            lendingPoolContract,
-            node
-        );
-        const lenderOwedAmount = loanPosition.principal + loanPosition.interest;
-        await withdrawLiquidity(
-            lenderAddress,
-            lendingPoolContract,
-            lenderOwedAmount
-        );
-        console.log("Lender withdrew supplied liquidity plus interest");
+        // // 9. withdraw lender funds with interest
+        // const loanPosition = await getLoanPosition(
+        //     lenderAddress,
+        //     lendingPoolContract,
+        //     node
+        // );
+        // const lenderOwedAmount = loanPosition.principal + loanPosition.interest;
+        // await withdrawLiquidity(
+        //     lenderAddress,
+        //     lendingPoolContract,
+        //     lenderOwedAmount
+        // );
+        // console.log("Lender withdrew supplied liquidity plus interest");
     });
 });

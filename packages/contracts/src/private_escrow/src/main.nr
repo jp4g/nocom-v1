@@ -68,7 +68,12 @@ pub contract NocomEscrowV1 {
 
         // 2. initiate deposit into the lending pool
         NocomLendingPoolV1::at(config.pool)
-            .collateralize_private(caller, amount, authwit_nonce)
+            .collateralize_private(caller, amount)
+            .call(&mut context);
+        
+        // 3. transfer collateral tokens into the escrow
+        Token::at(config.collateral_token_address)
+            .transfer_private_to_private(caller, context.this_address(), amount, authwit_nonce)
             .call(&mut context);
     }
 
@@ -105,26 +110,24 @@ pub contract NocomEscrowV1 {
         amount: u128,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
-    ) {
+    )  {
         // 1. check caller is escrow owner
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
         config.assert_holder(&mut context);
-
-        // 2. get partial note commitment to receive withdrawn tokens
-        let partial_note_commitment = Token::at(config.collateral_token_address)
-            .initialize_transfer_commitment(caller, config.pool)
-            .call(&mut context);
         
-        // 3. initiate withdrawal from the lending pool
+        // 2. initiate withdrawal from the lending pool
         NocomLendingPoolV1::at(config.pool)
             .withdraw_collateral_private(
                 amount,
-                caller, // todo: remove once partial note working
-                partial_note_commitment,
                 asserted_collateral_token_price,
                 asserted_loaned_token_price,
             )
+            .call(&mut context);
+        
+        // 3. transfer collateral back to the caller
+        Token::at(config.collateral_token_address)
+            .transfer_private_to_private(context.this_address(), caller, amount, 0)
             .call(&mut context);
     }
 
@@ -151,22 +154,43 @@ pub contract NocomEscrowV1 {
         // 1. get config
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
-
-        // 2. create partial note commitment to receive collateral tokens
-        let caller = context.msg_sender().unwrap();
-        let partial_note_commitment = Token::at(config.collateral_token_address)
-            .initialize_transfer_commitment(caller, config.pool)
-            .call(&mut context);
+        let self_address = context.this_address();
         
-        // 3. initiate liquidation in the lending pool
-        NocomLendingPoolV1::at(config.pool)
+        // 2. initiate liquidation in the lending pool
+        let (
+            liquidator_collateral_amount,
+            protocol_fee,
+            treasury_address
+        ) = NocomLendingPoolV1::at(config.pool)
             .liquidate_private(
                 amount,
                 caller,
                 liquidation_authwit_nonce,
-                partial_note_commitment,
                 asserted_collateral_token_price,
                 asserted_debt_token_price,
             ).call(&mut context);
+
+        // 3. transfer seized collateral share to liquidator
+        Token::at(config.collateral_token_address)
+            .transfer_private_to_private(
+                self_address,
+                caller,
+                liquidator_collateral_amount,
+                0
+            )
+            .call(&mut context);
+        Token::at(config.collateral_token_address)
+            .transfer_private_to_private(
+                self_address,
+                treasury_address,
+                protocol_fee,
+                0
+            )
+            .call(&mut context);
+    }
+
+    #[external("utility")]
+    unconstrained fn get_config() -> ConfigNote {
+        storage.config.view_note()
     }
 }

@@ -3,7 +3,7 @@ import type { SendOptions } from '@aztec/aztec.js/wallet';
 import { AztecAddress } from '@aztec/stdlib/aztec-address';
 import type { TestWallet } from "@aztec/test-wallet/server";
 import { CheatCodes } from "@aztec/aztec/testing";
-import type { TokenContract } from '../artifacts';
+import type { TokenContract } from '../contract/artifacts';
 
 export * as math from "./math";
 

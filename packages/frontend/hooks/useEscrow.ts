@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useWallet } from '@/contexts/WalletContext';
-import { getEscrowAddress } from '@/lib/storage/escrowStorage';
+import { getEscrowData } from '@/lib/storage/escrowStorage';
 import { NocomEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
 
 export interface UseEscrowReturn {
@@ -54,23 +54,23 @@ export function useEscrow(
         return;
       }
 
-      // 2. Check local storage for escrow address (per-user)
-      const storedEscrowAddress = getEscrowAddress(activeAccount.address, debtPoolAddress);
-      if (!storedEscrowAddress) {
+      // 2. Check local storage for escrow data (per-user)
+      const storedEscrowData = getEscrowData(activeAccount.address, debtPoolAddress);
+      if (!storedEscrowData) {
         console.log('[useEscrow] No escrow found - deployment required');
         setEscrowContract(undefined);
         setIsLoading(false);
         return;
       }
 
-      console.log('[useEscrow] Found escrow address in storage:', storedEscrowAddress);
+      console.log('[useEscrow] Found escrow data in storage:', storedEscrowData.escrowAddress);
 
-      // 3. Register the escrow contract and cache it
+      // 3. Register the escrow contract with its secret key, instance and cache it
       if (!wallet) {
         throw new Error('Wallet not connected');
       }
 
-      const registeredEscrow = await registerEscrow(debtPoolAddress, storedEscrowAddress);
+      const registeredEscrow = await registerEscrow(debtPoolAddress, storedEscrowData.escrowAddress, storedEscrowData.secretKey, storedEscrowData.instance);
       setEscrowContract(registeredEscrow);
       console.log('[useEscrow] Escrow contract registered and cached');
 
