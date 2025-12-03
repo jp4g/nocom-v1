@@ -19,12 +19,6 @@ export default function LandingNav() {
           <span className="text-white font-medium tracking-tight text-sm">NOCOM.FI</span>
         </div>
 
-        <div className="hidden md:flex items-center gap-8">
-          <a href="#" className="text-xs font-medium uppercase tracking-wide text-neutral-400 hover:text-white transition-colors">Markets</a>
-          <a href="#" className="text-xs font-medium uppercase tracking-wide text-neutral-400 hover:text-white transition-colors">Governance</a>
-          <a href="#" className="text-xs font-medium uppercase tracking-wide text-neutral-400 hover:text-white transition-colors">Developers</a>
-        </div>
-
         <div className="flex items-center gap-4">
           <button className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md border border-white/5 bg-white/5 hover:bg-white/10 transition-colors text-xs font-mono text-neutral-300">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>

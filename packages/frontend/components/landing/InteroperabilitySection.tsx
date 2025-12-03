@@ -10,33 +10,28 @@ export default function InteroperabilitySection() {
     <section className="max-w-7xl mx-auto px-6 py-24 border-t border-white/5">
       <div className="grid lg:grid-cols-2 gap-16 items-center">
         <div>
-          <h2 className="text-3xl font-medium text-white mb-6">Permissionless Interoperability</h2>
-          <p className="text-neutral-400 mb-8 max-w-md">
-            Nocom.Fi is built to be composed. Integrate privacy-preserving lending directly into your wallet, yield aggregator, or institutional dashboard.
-          </p>
+          <h2 className="text-3xl font-medium text-white mb-8">Private Collateral</h2>
 
           <div className="space-y-6">
             <div className="flex gap-4">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 text-white font-mono text-xs">1</div>
               <div>
-                <h4 className="text-white text-sm font-medium mb-1">Generate Proof</h4>
-                <p className="text-xs text-neutral-500">Client-side zero-knowledge proof generation.</p>
+                <h4 className="text-white text-sm font-medium mb-1">Create ZK-shielded TEE Escrow</h4>
+                <p className="text-xs text-neutral-500">Deploy a completely private collateral escrow shielded on Aztec that only a TEE can access.</p>
               </div>
             </div>
-            <div className="w-px h-6 bg-white/10 ml-4"></div>
             <div className="flex gap-4">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white/5 flex items-center justify-center border border-white/10 text-white font-mono text-xs">2</div>
               <div>
-                <h4 className="text-white text-sm font-medium mb-1">Relay Transaction</h4>
-                <p className="text-xs text-neutral-500">Submit via decentralized relayer network.</p>
+                <h4 className="text-white text-sm font-medium mb-1">Collateralize Privately</h4>
+                <p className="text-xs text-neutral-500">Privately collateralize in Nocom through your escrow without ANY public data leakage.</p>
               </div>
             </div>
-            <div className="w-px h-6 bg-white/10 ml-4"></div>
             <div className="flex gap-4">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-mono text-xs shadow-[0_0_10px_rgba(99,102,241,0.5)]">3</div>
               <div>
-                <h4 className="text-white text-sm font-medium mb-1">Settlement</h4>
-                <p className="text-xs text-neutral-500">Funds verify and settle on Aztec.</p>
+                <h4 className="text-white text-sm font-medium mb-1">Borrow Anonymously</h4>
+                <p className="text-xs text-neutral-500">Privately prove escrowed deposits to anonymously borrow against your funds.</p>
               </div>
             </div>
           </div>

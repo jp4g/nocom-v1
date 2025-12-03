@@ -5,7 +5,7 @@ export default function Hero() {
     <section className="max-w-7xl mx-auto px-6 mb-24">
       <div className="flex flex-col items-center text-center mb-16">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-indigo-500/20 bg-indigo-500/10 mb-6">
-          <span className="text-xs font-medium text-indigo-300 tracking-wide">V3 Public Beta is Live</span>
+          <span className="text-xs font-medium text-indigo-300 tracking-wide">V1 Sandboxed Demo is Live</span>
           <ArrowRight className="w-3 h-3 text-indigo-300" />
         </div>
 
@@ -15,7 +15,7 @@ export default function Hero() {
         </h1>
 
         <p className="text-lg text-neutral-400 leading-relaxed mb-10 max-w-xl mx-auto">
-          Supply and borrow assets with complete anonymity. Nocom.Fi utilizes zk-SNARKs to shield your balance and transaction history on-chain.
+          Supply and borrow assets with best-in-class privacy. Nocom ("No Comment") Finance utilizes TEE's and Aztec ZK Smart Contracts to shield all of your balances and transactions.
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 w-full max-w-4xl border-y border-white/5 py-8">
@@ -28,8 +28,8 @@ export default function Hero() {
             <div className="text-2xl md:text-3xl font-medium text-white font-mono tracking-tight">$310.2M</div>
           </div>
           <div className="text-center">
-            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Shielded TVL</div>
-            <div className="text-2xl md:text-3xl font-medium text-indigo-400 font-mono tracking-tight">$124.8M</div>
+            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Collateral TVL</div>
+            <div className="text-2xl md:text-3xl font-medium text-indigo-400 font-mono tracking-tight">????</div>
           </div>
           <div className="text-center">
             <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Protocol Yield</div>

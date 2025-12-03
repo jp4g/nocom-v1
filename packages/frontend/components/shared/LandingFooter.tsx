@@ -21,7 +21,7 @@ export default function LandingFooter() {
               <ul className="space-y-3 text-sm text-neutral-500">
                 <li><a href="#" className="hover:text-indigo-400 transition-colors">Dashboard</a></li>
                 <li><a href="#" className="hover:text-indigo-400 transition-colors">Markets</a></li>
-                <li><a href="#" className="hover:text-indigo-400 transition-colors">Stake GHO</a></li>
+                <li><a href="/portfolio" className="hover:text-indigo-400 transition-colors">Portfolio</a></li>
               </ul>
             </div>
             <div>
@@ -44,7 +44,7 @@ export default function LandingFooter() {
         </div>
 
         <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-white/5 gap-4">
-          <p className="text-xs text-neutral-600 font-mono">© 2024 Nocom.Fi</p>
+          <p className="text-xs text-neutral-600 font-mono">© 2025 Nocom.Fi</p>
           <div className="flex gap-4">
             <div className="w-2 h-2 rounded-full bg-green-500"></div>
             <span className="text-xs text-neutral-500 font-mono">All Systems Operational</span>
