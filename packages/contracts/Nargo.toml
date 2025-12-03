@@ -1,6 +1,8 @@
 [workspace]
 members = [
-    "src/private_escrow",
-    "src/price_oracle",
     "src/lending_pool",
+    "src/price_oracle",
+    "src/private_escrow",
+    "src/stable_pool",
+    "src/stable_private_escrow",
 ]

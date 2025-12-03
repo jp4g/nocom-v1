@@ -1,5 +1,5 @@
 [package]
-name = "nocom_lending_pool"
+name = "nocom_stable_pool"
 type = "contract"
 authors = ["Jack Gilcrest"]
 
@@ -9,4 +9,4 @@ token_contract = { git = "https://github.com/defi-wonderland/aztec-standards/", 
 mock_price_feed = { path = "../price_oracle" }
 poseidon = { git = "https:/github.com/noir-lang/poseidon", tag = "v0.1.1" }
 schnorr = { git = "https://github.com/noir-lang/schnorr", tag = "v0.1.3" }
-
+nocom_pool_common = { path = "../pool_common" }

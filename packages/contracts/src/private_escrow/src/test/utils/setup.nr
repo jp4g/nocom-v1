@@ -13,14 +13,14 @@ pub global USDC_NAME: str<31> = "USD Coin\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\
 pub global USDC_SYMBOL: str<31> = "USDC\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global USDC_DECIMALS: u8 = 18;
 // todo: switch ltvs, usdc should be zec and vice versa
-pub global USDC_LTV: u128 = comptime {  75 * 10.pow_32(3) as u128 }; // 0.75 % LTV
-pub global USDC_LIQUIDATION_THRESHOLD: u128 = comptime {  80 * 10.pow_32(3) as u128 }; // 80 % liquidation threshold
+pub global USDC_LTV: u128 = comptime { 75 * 10.pow_32(3) as u128 }; // 0.75 % LTV
+pub global USDC_LIQUIDATION_THRESHOLD: u128 = comptime { 80 * 10.pow_32(3) as u128 }; // 80 % liquidation threshold
 
 pub global ZCASH_NAME: str<31> = "ZCash\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global ZCASH_SYMBOL: str<31> = "ZEC\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n";
 pub global ZCASH_DECIMALS: u8 = 18;
-pub global ZCASH_LTV: u128 = comptime {  70 * 10.pow_32(3) as u128 }; // 70 % LTV
-pub global ZCASH_LIQUIDATION_THRESHOLD: u128 = comptime {  80 * 10.pow_32(3) as u128 }; // 80 % liquidation threshold
+pub global ZCASH_LTV: u128 = comptime { 70 * 10.pow_32(3) as u128 }; // 70 % LTV
+pub global ZCASH_LIQUIDATION_THRESHOLD: u128 = comptime { 80 * 10.pow_32(3) as u128 }; // 80 % liquidation threshold
 
 pub global LIQUIDATOR_PUBKEY_X: Field = 0; // TODO: set real pubkey
 pub global LIQUIDATOR_PUBKEY_Y: Field = 0;
@@ -90,16 +90,9 @@ pub unconstrained fn setup(mint: bool) -> (&mut TestEnvironment, TestAccounts, T
     );
     // deploy shared account escrow
     let (borrower_escrow, borrower_escrow_secret) =
-        deploy_shared_account_contract(
-            &mut env,
-            test_accounts.borrower,
-            lending_pool,
-            zcash,
-            usdc,
-        );
+        deploy_shared_account_contract(&mut env, test_accounts.borrower, lending_pool, zcash, usdc);
 
-    let contracts =
-        TestContracts { zcash, usdc, lending_pool, price_oracle, borrower_escrow };
+    let contracts = TestContracts { zcash, usdc, lending_pool, price_oracle, borrower_escrow };
 
     test_accounts.borrower_secret = borrower_escrow_secret;
 
@@ -167,7 +160,7 @@ pub unconstrained fn deploy_lending_pool_contract(
     collateral_token_address: AztecAddress,
     loaned_token_address: AztecAddress,
     max_ltv: u128,
-    liquidation_threshold: u128
+    liquidation_threshold: u128,
 ) -> AztecAddress {
     let initializer_call_interface = NocomLendingPoolV1::interface().constructor(
         admin,
@@ -230,7 +223,7 @@ pub unconstrained fn deploy_shared_account_contract(
     let initializer_call_interface = NocomEscrowV1::interface().constructor(
         lending_pool_address,
         collateral_token_address,
-        loaned_token_address
+        loaned_token_address,
     );
     let mut contract_instance = env.deploy("NocomEscrowV1");
 

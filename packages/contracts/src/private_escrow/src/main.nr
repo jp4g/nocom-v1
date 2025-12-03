@@ -35,7 +35,7 @@ pub contract NocomEscrowV1 {
             caller,
             pool_address,
             collateral_token_address,
-            loaned_token_address
+            loaned_token_address,
         );
         // emit to any holders of escrow key
         storage.config.initialize(config).emit(self_address, MessageDelivery.CONSTRAINED_ONCHAIN);
@@ -51,26 +51,19 @@ pub contract NocomEscrowV1 {
         config.assert_holder(&mut context);
 
         // 2. register the escrow in the lending pool
-        NocomLendingPoolV1::at(config.pool)
-            .register(signature)
-            .call(&mut context);
+        NocomLendingPoolV1::at(config.pool).register(signature).call(&mut context);
     }
 
     #[external("private")]
-    fn supply_collateral(
-        amount: u128,
-        authwit_nonce: Field,
-    ) {
+    fn supply_collateral(amount: u128, authwit_nonce: Field) {
         // 1. check caller is escrow owner
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
         config.assert_holder(&mut context);
 
         // 2. initiate deposit into the lending pool
-        NocomLendingPoolV1::at(config.pool)
-            .collateralize_private(caller, amount)
-            .call(&mut context);
-        
+        NocomLendingPoolV1::at(config.pool).collateralize_private(caller, amount).call(&mut context);
+
         // 3. transfer collateral tokens into the escrow
         Token::at(config.collateral_token_address)
             .transfer_private_to_private(caller, context.this_address(), amount, authwit_nonce)
@@ -92,7 +85,7 @@ pub contract NocomEscrowV1 {
         let partial_note_commitment = Token::at(config.loaned_token_address)
             .initialize_transfer_commitment(caller, config.pool)
             .call(&mut context);
-        
+
         // 3. initiate borrow from the lending pool
         NocomLendingPoolV1::at(config.pool)
             .borrow_private(
@@ -110,12 +103,12 @@ pub contract NocomEscrowV1 {
         amount: u128,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
-    )  {
+    ) {
         // 1. check caller is escrow owner
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
         config.assert_holder(&mut context);
-        
+
         // 2. initiate withdrawal from the lending pool
         NocomLendingPoolV1::at(config.pool)
             .withdraw_collateral_private(
@@ -124,7 +117,7 @@ pub contract NocomEscrowV1 {
                 asserted_loaned_token_price,
             )
             .call(&mut context);
-        
+
         // 3. transfer collateral back to the caller
         Token::at(config.collateral_token_address)
             .transfer_private_to_private(context.this_address(), caller, amount, 0)
@@ -139,9 +132,9 @@ pub contract NocomEscrowV1 {
         config.assert_holder(&mut context);
 
         // 2. initiate repayment in the lending pool
-        NocomLendingPoolV1::at(config.pool)
-            .repay_loan_private(caller, amount, authwit_nonce)
-            .call(&mut context);
+        NocomLendingPoolV1::at(config.pool).repay_loan_private(caller, amount, authwit_nonce).call(
+            &mut context,
+        );
     }
 
     #[external("private")]
@@ -155,37 +148,26 @@ pub contract NocomEscrowV1 {
         let config = storage.config.get_note();
         let caller = context.msg_sender().unwrap();
         let self_address = context.this_address();
-        
+
         // 2. initiate liquidation in the lending pool
-        let (
-            liquidator_collateral_amount,
-            protocol_fee,
-            treasury_address
-        ) = NocomLendingPoolV1::at(config.pool)
+        let (liquidator_collateral_amount, protocol_fee, treasury_address) = NocomLendingPoolV1::at(
+            config.pool,
+        )
             .liquidate_private(
                 amount,
                 caller,
                 liquidation_authwit_nonce,
                 asserted_collateral_token_price,
                 asserted_debt_token_price,
-            ).call(&mut context);
+            )
+            .call(&mut context);
 
         // 3. transfer seized collateral share to liquidator
         Token::at(config.collateral_token_address)
-            .transfer_private_to_private(
-                self_address,
-                caller,
-                liquidator_collateral_amount,
-                0
-            )
+            .transfer_private_to_private(self_address, caller, liquidator_collateral_amount, 0)
             .call(&mut context);
         Token::at(config.collateral_token_address)
-            .transfer_private_to_private(
-                self_address,
-                treasury_address,
-                protocol_fee,
-                0
-            )
+            .transfer_private_to_private(self_address, treasury_address, protocol_fee, 0)
             .call(&mut context);
     }
 

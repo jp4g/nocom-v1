@@ -3,7 +3,6 @@ use aztec::macros::aztec;
 #[aztec]
 pub contract NocomLendingPoolV1 {
     use aztec::{
-        oracle::debug_log::debug_log_format,
         macros::{functions::{external, initializer, internal}, storage::storage},
         messages::message_delivery::MessageDelivery,
         protocol_types::{address::AztecAddress, traits::ToField},
@@ -11,12 +10,12 @@ pub contract NocomLendingPoolV1 {
     };
     use nocom_pool_common::{
         constants,
+        contract_methods::{_get_loan_value, _update_loan},
         math,
         time,
-        contract_methods::{_update_loan, _get_loan_value},
         types::{
-            config::Config, loan_note::LoanNote,
-            utilization::Utilization, collateral_note::CollateralNote
+            collateral_note::CollateralNote, config::Config, loan_note::LoanNote,
+            utilization::Utilization,
         },
     };
 
@@ -99,10 +98,14 @@ pub contract NocomLendingPoolV1 {
         context.push_nullifier(registration_nullifier);
 
         // 3. intitialize empty notes for loan and collateral
-        storage.collateral.at(caller).initialize(CollateralNote::new(caller, 0))
-            .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
-        storage.debt.at(caller).initialize(LoanNote::new(caller, 0, 0))
-            .emit(caller, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage.collateral.at(caller).initialize(CollateralNote::new(caller, 0)).emit(
+            caller,
+            MessageDelivery.CONSTRAINED_ONCHAIN,
+        );
+        storage.debt.at(caller).initialize(LoanNote::new(caller, 0, 0)).emit(
+            caller,
+            MessageDelivery.CONSTRAINED_ONCHAIN,
+        );
     }
 
     /// PRIVATE LENDING FUNCTIONS ///
@@ -121,15 +124,19 @@ pub contract NocomLendingPoolV1 {
         let depositor = context.msg_sender().unwrap();
 
         // 2. update or insert a collateral receipt
-        storage.collateral.at(depositor).initialize_or_replace(|existing_receipt| {
-            // if note currently exists, calclulate existing amount with interest
-            let collateral_amount = if existing_receipt.is_some() {
-                existing_receipt.unwrap().amount + amount
-            } else {
-                amount
-            };
-            CollateralNote::new(depositor, collateral_amount)
-        }).emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage
+            .collateral
+            .at(depositor)
+            .initialize_or_replace(|existing_receipt| {
+                // if note currently exists, calclulate existing amount with interest
+                let collateral_amount = if existing_receipt.is_some() {
+                    existing_receipt.unwrap().amount + amount
+                } else {
+                    amount
+                };
+                CollateralNote::new(depositor, collateral_amount)
+            })
+            .emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
     }
 
     /**
@@ -161,7 +168,7 @@ pub contract NocomLendingPoolV1 {
         Token::at(config.loaned_token_address)
             .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
             .call(&mut context);
-        
+
         // 4. update utilization
         NocomLendingPoolV1::at(self_address)._supply_public(amount).enqueue(&mut context);
     }
@@ -197,24 +204,27 @@ pub contract NocomLendingPoolV1 {
         let next_epoch = time::get_next_epoch(&mut context, constants::EPOCH_LENGTH);
 
         // 4. calculate interest on existing borrow receipt if any and update the loan note
-        let borrow_note_emission = storage.debt.at(borrower).initialize_or_replace(|existing_borrow| {
-            let mut total_borrowed = amount;
-            if existing_borrow.is_some() {
-                let existing_borrow_note = existing_borrow.unwrap_unchecked();
-                let existing_borrow_principal = existing_borrow_note.amount;
-                let existing_borrow_epoch = existing_borrow_note.epoch;
-                let interest = math::calculate_interest(
-                    existing_borrow_principal,
-                    existing_borrow_epoch,
-                    next_epoch,
-                    constants::EPOCH_LENGTH,
-                    constants::BORROW_INTEREST,
-                );
-                total_borrowed += existing_borrow_principal + interest
-            };
-            let current_epoch = next_epoch - 1;
-            LoanNote::new(borrower, total_borrowed, current_epoch)
-        });
+        let borrow_note_emission = storage
+            .debt
+            .at(borrower)
+            .initialize_or_replace(|existing_borrow| {
+                let mut total_borrowed = amount;
+                if existing_borrow.is_some() {
+                    let existing_borrow_note = existing_borrow.unwrap_unchecked();
+                    let existing_borrow_principal = existing_borrow_note.amount;
+                    let existing_borrow_epoch = existing_borrow_note.epoch;
+                    let interest = math::calculate_interest(
+                        existing_borrow_principal,
+                        existing_borrow_epoch,
+                        next_epoch,
+                        constants::EPOCH_LENGTH,
+                        constants::BORROW_INTEREST,
+                    );
+                    total_borrowed += existing_borrow_principal + interest
+                };
+                let current_epoch = next_epoch - 1;
+                LoanNote::new(borrower, total_borrowed, current_epoch)
+            });
         let borrowed_amount = borrow_note_emission.content.note.amount;
         borrow_note_emission.emit(borrower, MessageDelivery.CONSTRAINED_ONCHAIN);
 
@@ -227,11 +237,8 @@ pub contract NocomLendingPoolV1 {
             config.max_ltv,
         );
 
-        assert(
-            ltv_health >= constants::LTV_THRESHOLD,
-            "LTV exceeded, cannot borrow"
-        );
-        
+        assert(ltv_health >= constants::LTV_THRESHOLD, "LTV exceeded, cannot borrow");
+
         // 6. update utilization, check prices, and transfer borrowed tokens
         NocomLendingPoolV1::at(self_address)
             ._borrow_public(
@@ -241,7 +248,7 @@ pub contract NocomLendingPoolV1 {
                 partial_note,
             )
             .enqueue(&mut context);
-        
+
         // 7. hack: transfer borrowed tokens directly
         Token::at(config.loaned_token_address)
             .transfer_public_to_private(self_address, recipient, amount, 0)
@@ -299,12 +306,12 @@ pub contract NocomLendingPoolV1 {
             );
             assert(
                 ltv_health >= constants::LTV_THRESHOLD,
-                "LTV exceeded, cannot withdraw collateral"
+                "LTV exceeded, cannot withdraw collateral",
             );
             CollateralNote::new(withdrawer, new_collateral_amount)
         });
         collateral_emission.emit(withdrawer, MessageDelivery.CONSTRAINED_ONCHAIN);
-        
+
         // 6. check prices
         NocomLendingPoolV1::at(self_address)
             ._withdraw_collateral_public(
@@ -326,7 +333,7 @@ pub contract NocomLendingPoolV1 {
     fn withdraw_loan_private(
         amount: u128,
         recipient: AztecAddress, // todo: remove once partial note working
-        partial_note: Field
+        partial_note: Field,
     ) {
         // 1. get the config and caller
         let config = storage.config.read();
@@ -337,14 +344,11 @@ pub contract NocomLendingPoolV1 {
         let (principal, interest) = _get_loan_value(
             &mut context,
             storage.loan.at(lender),
-            constants::LEND_INTEREST
+            constants::LEND_INTEREST,
         );
 
         // 3. determine the ratio being withdrawn to find protocol fee on interest
-        let withdraw_ratio = math::calculate_withdraw_ratio(
-            principal + interest,
-            amount,
-        );
+        let withdraw_ratio = math::calculate_withdraw_ratio(principal + interest, amount);
 
         // 4. calculate protocol fee on interest
         let interest_protocol_fee = (interest * withdraw_ratio) / constants::LTV_BASE;
@@ -355,20 +359,28 @@ pub contract NocomLendingPoolV1 {
         // 6. update the loan note
         // NOTE: cannot get interest from inside this lambda so we have to read the note in step 2,
         //       re-emit it, then read again during replace. TODO: optimize this if possible
-        storage.loan.at(lender).replace(|existing_loan| {
-            // constrains amount <= total assets claimable
-            let new_principal = existing_loan.amount - amount; 
-            LoanNote::new(lender, new_principal, existing_loan.epoch)
-        }).emit(lender, MessageDelivery.CONSTRAINED_ONCHAIN);
+        storage
+            .loan
+            .at(lender)
+            .replace(|existing_loan| {
+                // constrains amount <= total assets claimable
+                let new_principal = existing_loan.amount - amount;
+                LoanNote::new(lender, new_principal, existing_loan.epoch)
+            })
+            .emit(lender, MessageDelivery.CONSTRAINED_ONCHAIN);
 
         // 7. update utilization and take protocol fee
         NocomLendingPoolV1::at(self_address)
             ._withdraw_public(amount, interest_protocol_fee, partial_note)
             .enqueue(&mut context);
-        
+
         // 8. hack: transfer withdrawn tokens directly
-        Token::at(config.loaned_token_address)
-            .transfer_public_to_private(self_address, recipient, amount_to_lender, 0)
+        Token::at(config.loaned_token_address).transfer_public_to_private(
+            self_address,
+            recipient,
+            amount_to_lender,
+            0,
+        )
     }
 
     /**
@@ -379,11 +391,7 @@ pub contract NocomLendingPoolV1 {
      * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
      */
     #[external("private")]
-    fn repay_loan_private(
-        from: AztecAddress,
-        amount: u128,
-        authwit_nonce: Field,
-    ) {
+    fn repay_loan_private(from: AztecAddress, amount: u128, authwit_nonce: Field) {
         // 1. get the config and caller
         let config = storage.config.read();
         let repayer = context.msg_sender().unwrap();
@@ -405,7 +413,7 @@ pub contract NocomLendingPoolV1 {
         Token::at(config.loaned_token_address)
             .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
             .call(&mut context);
-        
+
         // 4. update utilization
         NocomLendingPoolV1::at(self_address)._repay_public(amount).enqueue(&mut context);
     }
@@ -466,50 +474,41 @@ pub contract NocomLendingPoolV1 {
             collateral_amount,
             config.liquidation_threshold,
         );
-        assert(
-            ltv_health < constants::LTV_THRESHOLD,
-            "Position healthy, cannot liquidate"
-        );
+        assert(ltv_health < constants::LTV_THRESHOLD, "Position healthy, cannot liquidate");
 
         // 7. check that amount to repay is <= 50% of total borrowed
         assert(
             amount_to_repay * 2 <= total_borrowed,
-            "Cannot repay more than 50% of total borrowed in liquidation"
+            "Cannot repay more than 50% of total borrowed in liquidation",
         );
 
         // 8. calculate the amount of collateral to seize to match loan repayment
-        let (total_collateral_seized, liquidator_collateral_amount, protocol_fee) =
-            math::calculate_liquidation(
-                amount_to_repay,
-                asserted_loaned_token_price,
-                asserted_collateral_token_price,
-            );
-        debug_log_format("Collateral Seized: {0}, Liquidator Collateral: {1}, Protocol Fee: {2}, initial collateral: {3}", [
-            total_collateral_seized as Field,
-            liquidator_collateral_amount as Field,
-            protocol_fee as Field,
-            collateral_amount as Field,
-        ]);
-
+        let (total_collateral_seized, liquidator_collateral_amount, protocol_fee) = math::calculate_liquidation(
+            amount_to_repay,
+            asserted_loaned_token_price,
+            asserted_collateral_token_price,
+        );
 
         // 9. update borrow note
         let remaining_loan_amount = total_borrowed - amount_to_repay;
         let current_epoch = next_epoch - 1;
-        storage.debt.at(liquidator).replace(|existing_loan| {
-            LoanNote::new(liquidator, remaining_loan_amount, current_epoch)
-        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
-        debug_log_format("Remaining Loan Amount: {0}", [
-            remaining_loan_amount as Field,
-        ]);
+        storage
+            .debt
+            .at(liquidator)
+            .replace(|existing_loan| {
+                LoanNote::new(liquidator, remaining_loan_amount, current_epoch)
+            })
+            .emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
 
         // 10. update collateral note
         let remaining_collateral_amount = collateral_amount - total_collateral_seized;
-        storage.collateral.at(liquidator).replace(|existing_collateral| {
-            CollateralNote::new(liquidator, remaining_collateral_amount)
-        }).emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
-        debug_log_format("Remaining Collateral Amount: {0}", [
-            remaining_collateral_amount as Field,
-        ]);
+        storage
+            .collateral
+            .at(liquidator)
+            .replace(|existing_collateral| {
+                CollateralNote::new(liquidator, remaining_collateral_amount)
+            })
+            .emit(liquidator, MessageDelivery.CONSTRAINED_ONCHAIN);
 
         // 11. transfer the loan token repayment into the pool
         Token::at(config.loaned_token_address)
@@ -517,16 +516,18 @@ pub contract NocomLendingPoolV1 {
                 liquidator_address,
                 context.this_address(),
                 amount_to_repay,
-                liquidation_authwit_nonce
-            ).call(&mut context);
-        
-        // 12. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
+                liquidation_authwit_nonce,
+            )
+            .call(&mut context);
+
+        // 12. update utilization, check prices
         NocomLendingPoolV1::at(self_address)
             ._liquidate_public(
                 amount_to_repay,
                 asserted_loaned_token_price,
                 asserted_collateral_token_price,
-            ).enqueue(&mut context);
+            )
+            .enqueue(&mut context);
 
         // 13. return amounts to escrow for private transfer
         (liquidator_collateral_amount, protocol_fee, config.treasury_address)
@@ -569,7 +570,7 @@ pub contract NocomLendingPoolV1 {
                     context.this_address(),
                     config.treasury_address,
                     interest_protocol_fee,
-                    0
+                    0,
                 )
                 .call(&mut context);
         }
@@ -595,7 +596,7 @@ pub contract NocomLendingPoolV1 {
         amount_borrowed: u128,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
-        partial_note: Field
+        partial_note: Field,
     ) {
         // 1. update utilization
         let mut utilization = storage.utilization.read();
@@ -610,9 +611,8 @@ pub contract NocomLendingPoolV1 {
             config.collateral_token_address,
             config.loaned_token_address,
         ]);
-        let prices = MockPriceFeed::at(config.price_oracle_address)
-            .get_prices(assets)
-            .view(&mut context);
+        let prices =
+            MockPriceFeed::at(config.price_oracle_address).get_prices(assets).view(&mut context);
         // this check might be unncessary
         assert(prices.len() == 2, "Price feed returned incorrect number of prices");
         // 2b. check collateral price is higher or equal to asserted
@@ -625,10 +625,7 @@ pub contract NocomLendingPoolV1 {
         // 2c. check loaned price is lower or equal to asserted
         //    if price is lower, borrower got a worse deal but pool is safe
         let loaned_price = prices.get_unchecked(1);
-        assert(
-            loaned_price <= asserted_loaned_token_price,
-            "Loaned price higher than asserted",
-        );
+        assert(loaned_price <= asserted_loaned_token_price, "Loaned price higher than asserted");
 
         // TODO: FIX
         // // 3. transfer borrowed tokens to borrower partial note
@@ -673,9 +670,8 @@ pub contract NocomLendingPoolV1 {
             config.collateral_token_address,
             config.loaned_token_address,
         ]);
-        let prices = MockPriceFeed::at(config.price_oracle_address)
-            .get_prices(assets)
-            .view(&mut context);
+        let prices =
+            MockPriceFeed::at(config.price_oracle_address).get_prices(assets).view(&mut context);
         // this check might be unncessary
         assert(prices.len() == 2, "Price feed returned incorrect number of prices");
         // 1b. check collateral price is higher or equal to asserted
@@ -688,18 +684,15 @@ pub contract NocomLendingPoolV1 {
         // 1c. check loaned price is lower or equal to asserted
         //    if price is lower, borrower got a worse deal but pool is safe
         let loaned_price = prices.get_unchecked(1);
-        assert(
-            loaned_price <= asserted_loaned_token_price,
-            "Loaned price higher than asserted",
-        );
+        assert(loaned_price <= asserted_loaned_token_price, "Loaned price higher than asserted");
     }
 
     #[external("public")]
     #[internal]
-    fn _liquidate_public(   
+    fn _liquidate_public(
         liquidated_amount: u128,
         asserted_collateral_token_price: u128,
-        asserted_loaned_token_price: u128
+        asserted_loaned_token_price: u128,
     ) {
         // 1. check prices
         // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
@@ -709,9 +702,8 @@ pub contract NocomLendingPoolV1 {
             config.collateral_token_address,
             config.loaned_token_address,
         ]);
-        let prices = MockPriceFeed::at(config.price_oracle_address)
-            .get_prices(assets)
-            .view(&mut context);
+        let prices =
+            MockPriceFeed::at(config.price_oracle_address).get_prices(assets).view(&mut context);
         // this check might be unncessary
         assert(prices.len() == 2, "Price feed returned incorrect number of prices");
         // 1b. check collateral price is higher or equal to asserted
@@ -724,10 +716,7 @@ pub contract NocomLendingPoolV1 {
         // 1c. check loaned price is lower or equal to asserted
         //    if price is lower, borrower got a worse deal but pool is safe
         let loaned_price = prices.get_unchecked(1);
-        assert(
-            loaned_price <= asserted_loaned_token_price,
-            "Loaned price higher than asserted",
-        );
+        assert(loaned_price <= asserted_loaned_token_price, "Loaned price higher than asserted");
         // 2. update utilization
         let mut utilization = storage.utilization.read();
         utilization.total_borrowed -= liquidated_amount;

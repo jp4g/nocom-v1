@@ -33,7 +33,7 @@ impl ConfigNote {
             pool,
             collateral_token_address,
             loaned_token_address,
-            randomness
+            randomness,
         }
     }
 

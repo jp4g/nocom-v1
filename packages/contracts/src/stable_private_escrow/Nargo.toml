@@ -1,5 +1,5 @@
 [package]
-name = "nocom_escrow"
+name = "nocom_stable_escrow"
 type = "contract"
 authors = ["Jack Gilcrest"]
 

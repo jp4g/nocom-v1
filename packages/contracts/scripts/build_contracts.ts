@@ -17,40 +17,47 @@ async function main() {
     await execCommand("aztec", [
       "codegen",
       "./target/nocom_escrow-NocomEscrowV1.json",
-      "-o", "./target",
-      "-f"
+      "-o", "./target", "-f"
     ]);
     await execCommand("aztec", [
       "codegen",
       "./target/nocom_lending_pool-NocomLendingPoolV1.json",
-      "-o", "./target",
-      "-f"
+      "-o", "./target", "-f"
     ]);
     await execCommand("aztec", [
       "codegen",
       "./target/nocom_mock_price_oracle-MockPriceFeed.json",
-      "-o", "./target",
-      "-f"
+      "-o", "./target", "-f"
     ]);
+    await execCommand("aztec", [
+      "codegen",
+      "./target/nocom_stable_pool-NocomStablePoolV1.json",
+      "-o", "./target", "-f"
+    ]);
+    await execCommand("aztec", [
+      "codegen",
+      "./target/nocom_stable_escrow-NocomStableEscrowV1.json",
+      "-o", "./target", "-f"
+    ])
 
     // copy the artifacts to the contracts artifacts dir
     console.log("Copying token artifacts...");
     const artifactsPath = join(scriptDir, "../ts/src/artifacts/");
     await copyFileWithLog(
       join(contractsDir, "target/nocom_escrow-NocomEscrowV1.json"),
-      join(artifactsPath, "escrow/NocomEscrow.json")
+      join(artifactsPath, "debt_escrow/NocomEscrow.json")
     );
     await copyFileWithLog(
       join(contractsDir, "target/NocomEscrowV1.ts"),
-      join(artifactsPath, "escrow/NocomEscrow.ts")
+      join(artifactsPath, "debt_escrow/NocomEscrow.ts")
     );
     await copyFileWithLog(
       join(contractsDir, "target/nocom_lending_pool-NocomLendingPoolV1.json"),
-      join(artifactsPath, "pool/NocomLendingPool.json")
+      join(artifactsPath, "debt_pool/NocomLendingPool.json")
     );
     await copyFileWithLog(
       join(contractsDir, "target/NocomLendingPoolV1.ts"),
-      join(artifactsPath, "pool/NocomLendingPool.ts")
+      join(artifactsPath, "debt_pool/NocomLendingPool.ts")
     );
     await copyFileWithLog(
       join(contractsDir, "target/nocom_mock_price_oracle-MockPriceFeed.json"),
@@ -60,15 +67,31 @@ async function main() {
       join(contractsDir, "target/MockPriceFeed.ts"),
       join(artifactsPath, "price_oracle/MockPriceFeed.ts")
     );
+    await copyFileWithLog(
+      join(contractsDir, "target/nocom_stable_pool-NocomStablePoolV1.json"),
+      join(artifactsPath, "stable_pool/NocomStablePool.json")
+    );
+    await copyFileWithLog(
+      join(contractsDir, "target/NocomStablePoolV1.ts"),
+      join(artifactsPath, "stable_pool/NocomStablePool.ts")
+    );
+    await copyFileWithLog(
+      join(contractsDir, "target/nocom_stable_escrow-NocomStableEscrowV1.json"),
+      join(artifactsPath, "stable_escrow/NocomStableEscrow.json")
+    );
+    await copyFileWithLog(
+      join(contractsDir, "target/NocomStableEscrowV1.ts"),
+      join(artifactsPath, "stable_escrow/NocomStableEscrow.ts")
+    );
 
     // fix imports in the copied bindings
     await replaceInFile(
-      join(artifactsPath, "escrow/NocomEscrow.ts"),
+      join(artifactsPath, "debt_escrow/NocomEscrow.ts"),
       "./nocom_escrow-NocomEscrowV1.json",
       "./NocomEscrow.json"
     );
     await replaceInFile(
-      join(artifactsPath, "pool/NocomLendingPool.ts"),
+      join(artifactsPath, "debt_pool/NocomLendingPool.ts"),
       "./nocom_lending_pool-NocomLendingPoolV1.json",
       "./NocomLendingPool.json"
     );
@@ -76,6 +99,16 @@ async function main() {
       join(artifactsPath, "price_oracle/MockPriceFeed.ts"),
       "./nocom_mock_price_oracle-MockPriceFeed.json",
       "./MockPriceFeed.json"
+    );
+    await replaceInFile(
+      join(artifactsPath, "stable_pool/NocomStablePool.ts"),
+      "./nocom_stable_pool-NocomStablePoolV1.json",
+      "./NocomStablePool.json"
+    );
+    await replaceInFile(
+      join(artifactsPath, "stable_escrow/NocomStableEscrow.ts"),
+      "./nocom_stable_escrow-NocomStableEscrowV1.json",
+      "./NocomStableEscrow.json"
     );
     console.log("Contract artifacts compiled!");
   } catch (error) {

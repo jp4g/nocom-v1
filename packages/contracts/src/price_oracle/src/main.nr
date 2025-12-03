@@ -64,9 +64,7 @@ pub contract MockPriceFeed {
     // get multiple prices
     #[external("public")]
     #[view]
-    fn get_prices(
-        asset_addresses: BoundedVec<AztecAddress, 2>,
-    ) -> BoundedVec<u128, 2> {
+    fn get_prices(asset_addresses: BoundedVec<AztecAddress, 2>) -> BoundedVec<u128, 2> {
         let mut prices: BoundedVec<u128, 2> = BoundedVec::new();
         for i in 0..asset_addresses.len() {
             if i < asset_addresses.len() {

@@ -33,7 +33,7 @@ impl ConfigNote {
             pool,
             collateral_token_address,
             stable_token_address,
-            randomness
+            randomness,
         }
     }
 
