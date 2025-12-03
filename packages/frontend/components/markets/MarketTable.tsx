@@ -10,6 +10,8 @@ import { AztecAddress } from '@aztec/aztec.js/addresses';
 import SupplyModal from './SupplyModal';
 import BorrowModal from './BorrowModal';
 import CollateralizeModal from './CollateralizeModal';
+import StableCollateralizeModal from './StableCollateralizeModal';
+import StableBorrowModal from './StableBorrowModal';
 import { MarketType } from './MarketsContent';
 
 function calculateUtilization(supplied: bigint, borrowed: bigint): number {
@@ -37,6 +39,11 @@ export default function MarketTable({ marketType }: MarketTableProps) {
   const [borrowModalOpen, setBorrowModalOpen] = useState(false);
   const [collateralizeModalOpen, setCollateralizeModalOpen] = useState(false);
   const [selectedMarket, setSelectedMarket] = useState<MarketWithContract | null>(null);
+
+  // Stable market modal state
+  const [stableCollateralizeModalOpen, setStableCollateralizeModalOpen] = useState(false);
+  const [stableBorrowModalOpen, setStableBorrowModalOpen] = useState(false);
+  const [selectedStableMarket, setSelectedStableMarket] = useState<StableMarketWithContract | null>(null);
 
   // Extract wallet instance and address
   const wallet = useMemo(() => walletHandle?.instance, [walletHandle]);
@@ -75,6 +82,17 @@ export default function MarketTable({ marketType }: MarketTableProps) {
   const handleCollateralizeClick = (market: MarketWithContract) => {
     setSelectedMarket(market);
     setCollateralizeModalOpen(true);
+  };
+
+  // Stable market handlers
+  const handleStableCollateralizeClick = (market: StableMarketWithContract) => {
+    setSelectedStableMarket(market);
+    setStableCollateralizeModalOpen(true);
+  };
+
+  const handleStableBorrowClick = (market: StableMarketWithContract) => {
+    setSelectedStableMarket(market);
+    setStableBorrowModalOpen(true);
   };
 
   return (
@@ -295,11 +313,13 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                   <td className="py-4 px-6 text-right">
                     <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
+                        onClick={() => handleStableCollateralizeClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-transparent hover:bg-surface-border text-text-muted hover:text-white border border-surface-border rounded transition-colors"
                       >
                         Collateralize
                       </button>
                       <button
+                        onClick={() => handleStableBorrowClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
                       >
                         Borrow
@@ -364,6 +384,33 @@ export default function MarketTable({ marketType }: MarketTableProps) {
             open={borrowModalOpen}
             onClose={() => setBorrowModalOpen(false)}
             market={selectedMarket}
+            wallet={wallet}
+            userAddress={address}
+          />
+        </>
+      )}
+
+      {/* Stable Market Modals */}
+      {selectedStableMarket && contracts && (
+        <>
+          <StableCollateralizeModal
+            open={stableCollateralizeModalOpen}
+            onClose={() => setStableCollateralizeModalOpen(false)}
+            collateralTokenName={selectedStableMarket.collateralAsset}
+            collateralTokenContract={
+              selectedStableMarket.collateralAsset === 'ZEC'
+                ? contracts.tokens.zec
+                : contracts.tokens.usdc
+            }
+            stableTokenAddress={contracts.tokens.zusd.address}
+            poolContract={selectedStableMarket.contract}
+            wallet={wallet}
+            userAddress={address}
+          />
+          <StableBorrowModal
+            open={stableBorrowModalOpen}
+            onClose={() => setStableBorrowModalOpen(false)}
+            market={selectedStableMarket}
             wallet={wallet}
             userAddress={address}
           />

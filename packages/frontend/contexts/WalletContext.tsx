@@ -17,10 +17,11 @@ import { Fr } from '@aztec/foundation/fields'
 import type { EmbeddedWallet } from '@/lib/wallet/embeddedWallet'
 import { registerPublicContracts } from '@/lib/contract'
 import { NocomPublicContracts } from '@/lib/types'
-import { NocomEscrowV1Contract, NocomEscrowV1ContractArtifact } from '@nocom-v1/contracts/artifacts'
+import { NocomEscrowV1Contract, NocomEscrowV1ContractArtifact, NocomStableEscrowV1Contract, NocomStableEscrowV1ContractArtifact } from '@nocom-v1/contracts/artifacts'
 import { ContractInstanceWithAddressSchema } from '@aztec/stdlib/contract'
 import { simulationQueue } from '@/lib/utils/simulationQueue'
 import { getEscrowMappings } from '@/lib/storage/escrowStorage'
+import { getStableEscrowMappings } from '@/lib/storage/stableEscrowStorage'
 import { getSuppliedPoolsForUser, addSuppliedPool, isPoolSupplied } from '@/lib/storage/suppliedPoolsStorage'
 
 export type WalletStatus = 'disconnected' | 'connecting' | 'connected'
@@ -44,8 +45,10 @@ export type WalletContextValue = {
   node?: AztecNode
   contracts?: NocomPublicContracts
   escrowContracts: Map<string, NocomEscrowV1Contract> // Maps debtPool address -> escrow contract
+  stableEscrowContracts: Map<string, NocomStableEscrowV1Contract> // Maps stablePool address -> stable escrow contract
   suppliedPools: Set<string> // Set of pool addresses the user has supplied to
   registerEscrow: (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => Promise<NocomEscrowV1Contract>
+  registerStableEscrow: (stablePoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => Promise<NocomStableEscrowV1Contract>
   trackSuppliedPool: (poolAddress: string) => void // Track a pool the user has supplied to
   connect: (provider?: WalletProviderType) => Promise<void>
   disconnect: () => Promise<void>
@@ -107,6 +110,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
   const [activeAccountState, setActiveAccountState] = useState<WalletAccount | undefined>(undefined)
   const [contracts, setContracts] = useState<NocomPublicContracts | undefined>(undefined)
   const [escrowContracts, setEscrowContracts] = useState<Map<string, NocomEscrowV1Contract>>(new Map())
+  const [stableEscrowContracts, setStableEscrowContracts] = useState<Map<string, NocomStableEscrowV1Contract>>(new Map())
   const [suppliedPools, setSuppliedPools] = useState<Set<string>>(new Set())
 
   const walletHandleRef = useRef<WalletHandle | undefined>(undefined)
@@ -169,6 +173,58 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
   }, [])
 
+  // Load all stable escrows from local storage for the current user
+  const loadStableEscrowsFromStorage = useCallback(async (userAddress: string) => {
+    const handle = walletHandleRef.current
+    if (!handle || handle.type !== 'embedded') {
+      console.log('[WalletContext] Skipping stable escrow load - not embedded wallet')
+      return
+    }
+
+    const stableEscrowMappings = getStableEscrowMappings(userAddress)
+    const stablePoolAddresses = Object.keys(stableEscrowMappings)
+
+    if (stablePoolAddresses.length === 0) {
+      console.log('[WalletContext] No stable escrows found in storage for user:', userAddress)
+      return
+    }
+
+    console.log('[WalletContext] Loading', stablePoolAddresses.length, 'stable escrows from storage for user:', userAddress)
+
+    const loadedStableEscrows = new Map<string, NocomStableEscrowV1Contract>()
+
+    for (const stablePoolAddress of stablePoolAddresses) {
+      const escrowData = stableEscrowMappings[stablePoolAddress]
+      try {
+        console.log('[WalletContext] Loading stable escrow for pool:', stablePoolAddress)
+
+        const escrowAztecAddress = AztecAddress.fromString(escrowData.escrowAddress)
+        const secretKeyFr = Fr.fromString(escrowData.secretKey)
+        const escrowContractInstance = ContractInstanceWithAddressSchema.parse(
+          JSON.parse(escrowData.instance)
+        )
+
+        // Use simulation queue to prevent IndexedDB transaction conflicts
+        const escrowContract = await simulationQueue.enqueue(async () => {
+          await handle.instance.registerContract(escrowContractInstance, NocomStableEscrowV1ContractArtifact, secretKeyFr)
+          await handle.instance.registerSender(escrowAztecAddress)
+          return await NocomStableEscrowV1Contract.at(escrowAztecAddress, handle.instance)
+        })
+
+        loadedStableEscrows.set(stablePoolAddress, escrowContract)
+        console.log('[WalletContext] Successfully loaded stable escrow for pool:', stablePoolAddress)
+      } catch (error) {
+        console.error('[WalletContext] Failed to load stable escrow for pool:', stablePoolAddress, error)
+        // Continue loading other escrows even if one fails
+      }
+    }
+
+    if (loadedStableEscrows.size > 0) {
+      setStableEscrowContracts(loadedStableEscrows)
+      console.log('[WalletContext] Loaded', loadedStableEscrows.size, 'stable escrows from storage')
+    }
+  }, [])
+
   const registerEscrow = useCallback(async (debtPoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => {
     const handle = walletHandleRef.current
     if (!handle || handle.type !== 'embedded') {
@@ -213,6 +269,54 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       return escrowContract
     } catch (error) {
       console.error('[WalletContext] Failed to register escrow:', error)
+      throw error
+    }
+  }, [])
+
+  const registerStableEscrow = useCallback(async (stablePoolAddress: string, escrowAddress: string, secretKey: string, instanceString: string) => {
+    const handle = walletHandleRef.current
+    if (!handle || handle.type !== 'embedded') {
+      throw new Error('Stable escrow registration only supported for embedded wallet')
+    }
+
+    try {
+      console.log('[WalletContext] Registering stable escrow contract:', { stablePoolAddress, escrowAddress })
+
+      const escrowAztecAddress = AztecAddress.fromString(escrowAddress)
+      const secretKeyFr = Fr.fromString(secretKey)
+
+      // Parse the contract instance from the stored JSON string
+      const escrowContractInstance = ContractInstanceWithAddressSchema.parse(
+        JSON.parse(instanceString)
+      )
+
+      // Use simulation queue to prevent IndexedDB transaction conflicts
+      const escrowContract = await simulationQueue.enqueue(async () => {
+        // Register the contract with its secret key so the PXE can decrypt notes
+        await handle.instance.registerContract(escrowContractInstance, NocomStableEscrowV1ContractArtifact, secretKeyFr)
+        console.log('[WalletContext] Stable escrow contract registered with PXE')
+
+        // Register as sender
+        await handle.instance.registerSender(escrowAztecAddress)
+        console.log('[WalletContext] Stable escrow registered as sender')
+
+        // Now initialize the contract interface
+        return await NocomStableEscrowV1Contract.at(
+          escrowAztecAddress,
+          handle.instance
+        )
+      })
+
+      setStableEscrowContracts(prev => {
+        const updated = new Map(prev)
+        updated.set(stablePoolAddress, escrowContract)
+        return updated
+      })
+
+      console.log('[WalletContext] Stable escrow contract registered successfully')
+      return escrowContract
+    } catch (error) {
+      console.error('[WalletContext] Failed to register stable escrow:', error)
       throw error
     }
   }, [])
@@ -273,6 +377,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     setActiveAccountInternal(undefined)
     setContracts(undefined)
     setEscrowContracts(new Map())
+    setStableEscrowContracts(new Map())
     setSuppliedPools(new Set())
   }, [setActiveAccountInternal])
 
@@ -348,13 +453,15 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
         setActiveAccountInternal(nextAccount)
         // Clear caches when switching accounts since they are per-user
         setEscrowContracts(new Map())
+        setStableEscrowContracts(new Map())
         setSuppliedPools(new Set())
         // Load data for the new account
         await loadEscrowsFromStorage(nextAccount.address)
+        await loadStableEscrowsFromStorage(nextAccount.address)
         loadSuppliedPoolsFromStorage(nextAccount.address)
       }
     },
-    [accounts, setActiveAccountInternal, loadEscrowsFromStorage, loadSuppliedPoolsFromStorage],
+    [accounts, setActiveAccountInternal, loadEscrowsFromStorage, loadStableEscrowsFromStorage, loadSuppliedPoolsFromStorage],
   )
 
   // Background initialization of sender connections after wallet connects
@@ -373,6 +480,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
           if (currentAccount) {
             console.log('[WalletContext] Loading escrows and supplied pools for account:', currentAccount.address)
             await loadEscrowsFromStorage(currentAccount.address)
+            await loadStableEscrowsFromStorage(currentAccount.address)
             loadSuppliedPoolsFromStorage(currentAccount.address)
           }
         } catch (error) {
@@ -382,7 +490,7 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
     }
 
     initializeSenders()
-  }, [status, loadEscrowsFromStorage, loadSuppliedPoolsFromStorage])
+  }, [status, loadEscrowsFromStorage, loadStableEscrowsFromStorage, loadSuppliedPoolsFromStorage])
 
   const value = useMemo<WalletContextValue>(
     () => ({
@@ -394,8 +502,10 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       node,
       contracts,
       escrowContracts,
+      stableEscrowContracts,
       suppliedPools,
       registerEscrow,
+      registerStableEscrow,
       trackSuppliedPool,
       connect,
       disconnect,
@@ -409,8 +519,10 @@ export const WalletProvider = ({ children }: PropsWithChildren) => {
       activeAccountState,
       contracts,
       escrowContracts,
+      stableEscrowContracts,
       suppliedPools,
       registerEscrow,
+      registerStableEscrow,
       trackSuppliedPool,
       connect,
       disconnect,

@@ -1,7 +1,7 @@
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import { MarketUtilization } from '../types';
 import { BaseWallet } from '@aztec/aztec.js/wallet';
-import { NocomEscrowV1Contract, NocomLendingPoolV1Contract } from '@nocom-v1/contracts/artifacts';
+import { NocomEscrowV1Contract, NocomLendingPoolV1Contract, NocomStablePoolV1Contract } from '@nocom-v1/contracts/artifacts';
 import { BatchCall } from '@aztec/aztec.js/contracts';
 import { DebtPosition, LoanPosition } from '@nocom-v1/contracts/types';
 import { simulationQueue } from '../utils/simulationQueue';
