@@ -1,27 +1,29 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { TxReceipt } from "@aztec/stdlib/tx";
-import type { NocomEscrowV1Contract, TokenContract } from "../artifacts";
+import type { NocomStableEscrowV1Contract, TokenContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
-import { privateTransferAuthwit } from "./token";
+import { burnPrivateAuthwit, privateTransferAuthwit } from "./token";
 
 /**
- * Register the escrow contract with the lending pool
+ * Register the stable escrow contract with the lending pool
  * @notice: signature is disaled, but this should be called after handshake with liquidator
  * 
  * @param from - caller addres
- * @param escrowContract - escrow contract to register
+ * @param escrowContract - stable escrow contract to register
  * @param signature - signature by liquidator proving handshake
  * @param opts - send and wait options
  * @returns - receipt upon tx confirmation
  */
-export async function registerEscrowWithPool(
+export async function registerStableEscrowWithPool(
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
+    escrowContract: NocomStableEscrowV1Contract,
     signature: number[] = new Array(64).fill(0),
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
-    return await escrowContract.methods.register(signature).send(opts.send).wait(opts.wait);
+    return await escrowContract.methods.register(signature)
+        .send(opts.send)
+        .wait(opts.wait);
 }
 
 /**
@@ -29,7 +31,7 @@ export async function registerEscrowWithPool(
  * 
  * @param wallet - wallet instance holding the `from` account
  * @param from - address depositing collateral
- * @param escrowContract - escrow contract managing debt position
+ * @param escrowContract - stable escrow contract managing debt position
  * @param tokenContract - token contract of the collateral being deposited
  * @param amount - amount to deposit
  * @param opts - send and wait options
@@ -38,7 +40,7 @@ export async function registerEscrowWithPool(
 export async function depositCollateral(
     wallet: BaseWallet,
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
+    escrowContract: NocomStableEscrowV1Contract,
     collateralTokenContract: TokenContract,
     amount: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } },
@@ -56,71 +58,65 @@ export async function depositCollateral(
     opts = { send: { from, authWitnesses: [authwit] } };
 
     // 2. call depositCollateral method
-    return await escrowContract.methods.supply_collateral(amount, nonce).send(opts.send).wait();
+    return await escrowContract.methods.supply_collateral(amount, nonce)
+        .send(opts.send)
+        .wait();
 }
 
 /**
- * Borrow funds from the lending pool via the escrow contract
- * 
- * 
+ * Use collateral to mint stablecoins via a stable escrow contract
  * @param from - address borrowing funds
- * @param escrowContract - escrow contract managing debt position
- * @param amount - amount to borrow
+ * @param escrowContract - stable escrow contract managing debt position
+ * @param amount - amount of zUSD stables to mint
  * @param assertedCollateralTokenPrice - asserted price of the collateral token
- * @param assertedDebtTokenPrice - asserted price of the debt token
  * @param opts - send and wait options
- * @returns 
+ * @returns - receipt upon tx confirmation
  */
-export async function borrowFromPool(
+export async function mintStable(
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
+    escrowContract: NocomStableEscrowV1Contract,
     amount: bigint,
     assertedCollateralTokenPrice: bigint,
-    assertedDebtTokenPrice: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
-    return await escrowContract.methods.borrow(
-        amount,
-        assertedCollateralTokenPrice,
-        assertedDebtTokenPrice
-    ).send(opts.send).wait(opts.wait);
+    return await escrowContract.methods.mint(amount, assertedCollateralTokenPrice)
+        .send(opts.send)
+        .wait(opts.wait);
 }
 
 /**
- * Repay a debt position via the escrow contract
+ * Repay a debt position by burning stablecoins via a stable escrow contract
  * 
  * @param wallet - wallet instance holding the `from` account
  * @param from - address repaying the debt
- * @param escrowContract - escrow contract managing debt position
- * @param debtTokenContract - token contract of the debt being repaid
+ * @param escrowContract - stable escrow contract managing debt position
+ * @param stableTokenContract - zUSD stable token contract
  * @param poolAddress - the address of the lending pool
  * @param amount - amount to repay
  * @param opts - send and wait options
  * @returns - receipt upon tx confirmation
  */
-export async function repayDebt(
+export async function repayDebtByBurn(
     wallet: BaseWallet,
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
-    debtTokenContract: TokenContract,
+    escrowContract: NocomStableEscrowV1Contract,
+    stableTokenContract: TokenContract,
     poolAddress: AztecAddress,
     amount: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
     // 1. create authwit
-    const { authwit, nonce } = await privateTransferAuthwit(
+    const { authwit, nonce } = await burnPrivateAuthwit(
         wallet,
         from,
-        debtTokenContract,
-        'transfer_private_to_public',
-        poolAddress,
+        stableTokenContract,
         poolAddress,
         amount,
     );
     opts.send.authWitnesses = [authwit];
 
-    // 2. call repayDebt method
-    return await escrowContract.methods.repay(amount, nonce)
+    // 2. call repay_with_burn method
+    return await escrowContract.methods.repay_with_burn(amount, nonce)
         .send(opts.send)
         .wait(opts.wait);
 }
@@ -132,59 +128,50 @@ export async function repayDebt(
  * @param escrowContract - escrow contract managing debt position
  * @param amount - amount to withdraw
  * @param assertedCollateralTokenPrice - asserted price of the collateral token
- * @param assertedDebtTokenPrice - asserted price of the debt token
  * @param opts - send and wait options
  * @returns - receipt upon tx confirmation
  */
 export async function withdrawCollateral(
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
+    escrowContract: NocomStableEscrowV1Contract,
     amount: bigint,
     assertedCollateralTokenPrice: bigint,
-    assertedDebtTokenPrice: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
     return await escrowContract.methods.withdraw_collateral(
         amount,
         assertedCollateralTokenPrice,
-        assertedDebtTokenPrice
-    )
-        .send(opts.send)
-        .wait(opts.wait);
+    ).send(opts.send).wait(opts.wait);
 }
 
 /**
- * Liquidate a position via the escrow contract
+ * Liquidate a position via the stable escrow contract
  * 
  * @param wallet - wallet instance holding the `from` account
  * @param from - address performing the liquidation
- * @param escrowContract - escrow contract managing debt position
- * @param collateralTokenContract - token contract of the collateral being seized
+ * @param escrowContract - stable escrow contract managing debt position
+ * @param collateralTokenContract - zUSD stable token contract
  * @param poolAddress - the address of the lending pool
- * @param repayAmount - amount to repay on behalf of the borrower
+ * @param repayAmount - amount to burn on behalf of the borrower
  * @param assertedCollateralTokenPrice - asserted price of the collateral token
- * @param assertedDebtTokenPrice - asserted price of the debt token
  * @param opts - send and wait options
  * @returns - receipt upon tx confirmation
  */
 export async function liquidatePosition(
     wallet: BaseWallet,
     from: AztecAddress,
-    escrowContract: NocomEscrowV1Contract,
+    escrowContract: NocomStableEscrowV1Contract,
     collateralTokenContract: TokenContract,
     poolAddress: AztecAddress,
     repayAmount: bigint,
     assertedCollateralTokenPrice: bigint,
-    assertedDebtTokenPrice: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
-    // 1. create authwit to transfer repayAmount of collateral tokens to the pool
-    const { authwit, nonce } = await privateTransferAuthwit(
+    // 1. create authwit to burn 
+    const { authwit, nonce } = await burnPrivateAuthwit(
         wallet,
         from,
         collateralTokenContract,
-        'transfer_private_to_public',
-        poolAddress,
         poolAddress,
         repayAmount,
     );
@@ -195,8 +182,5 @@ export async function liquidatePosition(
         repayAmount,
         nonce,
         assertedCollateralTokenPrice,
-        assertedDebtTokenPrice,
-    )
-        .send(opts.send)
-        .wait(opts.wait);
+    ).send(opts.send).wait(opts.wait);
 };

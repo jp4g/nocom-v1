@@ -6,7 +6,7 @@ import { privateTransferAuthwit } from "./token";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import type { DebtPosition, LoanPosition } from "../types";
 import type { AztecNode } from "@aztec/aztec.js/node";
-import { EPOCH_LENGTH, LEND_INTEREST } from "../constants";
+import { BORROW_INTEREST, EPOCH_LENGTH, LEND_INTEREST } from "../constants";
 import { calculateInterest } from "../utils/math";
 
 /**
@@ -66,7 +66,6 @@ export async function withdrawLiquidity(
         .send(opts.send)
         .wait(opts.wait);
 }
-
 
 /**
  * Get the total utilization of the lending pool
@@ -159,7 +158,7 @@ export async function getDebtPosition(
         startingEpoch,
         currentEpoch,
         BigInt(EPOCH_LENGTH),
-        LEND_INTEREST
+        BORROW_INTEREST
     );
     return { collateral, startingEpoch: Number(startingEpoch), principal, interest };
 }

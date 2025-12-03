@@ -39,5 +39,36 @@ export async function privateTransferAuthwit(
     return { authwit, nonce }
 }
 
+/**
+ * Get `burn_private` authwit
+ * 
+ * @param wallet - wallet intance holding the `from` account
+ * @param from - address to approve tokens being burned from
+ * @param token - token contract
+ * @param caller - the address of the contract calling `burn_private`
+ * @param amount - amount to burn
+ * @returns 
+ *  - authwit for the burn
+ *  - nonce used for authwit
+ */
+export async function burnPrivateAuthwit(
+    wallet: BaseWallet,
+    from: AztecAddress,
+    token: TokenContract,
+    caller: AztecAddress,
+    amount: bigint,
+): Promise<{ authwit: AuthWitness, nonce: Fr }> {
+    // construct call data
+    const nonce = Fr.random();
+    const call = await token.methods.burn_private(
+        from,
+        amount,
+        nonce,
+    ).getFunctionCall();
+    // construct private authwit
+    const authwit = await wallet.createAuthWit(from, { caller, call });
+    return { authwit, nonce }
+}
+
 
 

@@ -1,16 +1,27 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
-import { TokenContract, MockPriceFeedContract, NocomLendingPoolV1Contract, NocomEscrowV1Contract, NocomEscrowV1ContractArtifact } from "../artifacts";
+import {
+    TokenContract,
+    MockPriceFeedContract,
+    NocomLendingPoolV1Contract,
+    NocomEscrowV1Contract,
+    NocomEscrowV1ContractArtifact,
+    NocomStablePoolV1Contract,
+    NocomStableEscrowV1Contract,
+    NocomStableEscrowV1ContractArtifact
+} from "../artifacts";
 import { Fr } from "@aztec/foundation/fields";
 import { deriveKeys } from "@aztec/stdlib/keys";
 import { registerEscrowWithPool } from "./escrow";
+import { registerStableEscrowWithPool } from "./stableEscrow";
 
 /**
  * Deploys a new instance of the AIP-20 aztec-standards Token Contract
  * @param wallet - the wallet managing the account deploying the contract
  * @param from - the address of the deployer/ minter
  * @param tokenMetadata - the name, symbol, and decimals of the token
+ * @param minter - optional minter address, defaults to deployer
  * @param opts - Aztec tx send and wait options (optional)
  * @returns - the deployed Token Contract
  */
@@ -18,6 +29,7 @@ export async function deployTokenContract(
     wallet: BaseWallet,
     from: AztecAddress,
     tokenMetadata: { name: string; symbol: string; decimals: number },
+    minter: AztecAddress = from,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }} 
 ): Promise<TokenContract> {
     return await TokenContract.deployWithOpts(
@@ -25,7 +37,7 @@ export async function deployTokenContract(
         tokenMetadata.name,
         tokenMetadata.symbol,
         tokenMetadata.decimals,
-        from,
+        minter,
         AztecAddress.ZERO,
     )
         .send(opts.send)
@@ -142,6 +154,70 @@ export async function deployEscrowContract(
     // if specified, register the escrow with the lending pool
     // THIS WILL REQUIRE CREATE2 STYLE DEPLOYMENTS ONCE LIQUDIATOR APPROVAL IS REQUIRED
     if (register) await registerEscrowWithPool(from, contract, undefined, opts);
+
+    return { contract, secretKey };
+}
+
+export async function deployStablePoolContract(
+    wallet: BaseWallet,
+    from: AztecAddress,
+    admin: AztecAddress = from,
+    liquidatorPubkey: { x: bigint, y: bigint },
+    priceOracleAddress: AztecAddress,
+    treasuryAddress: AztecAddress,
+    collateralTokenAddress: AztecAddress,
+    stableTokenAddress: AztecAddress,
+    maxLTV: bigint,
+    liquidationThreshold: bigint,
+    opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
+): Promise<NocomStablePoolV1Contract> {
+    return await NocomStablePoolV1Contract.deploy(
+        wallet,
+        admin,
+        liquidatorPubkey.x,
+        liquidatorPubkey.y,
+        priceOracleAddress,
+        treasuryAddress,
+        collateralTokenAddress,
+        stableTokenAddress,
+        maxLTV,
+        liquidationThreshold
+    )
+        .send(opts.send)
+        .deployed(opts.wait);
+}
+
+export async function deployStableEscrowContract(
+    wallet: BaseWallet,
+    from: AztecAddress,
+    lendingPoolAddress: AztecAddress,
+    collateralTokenAddress: AztecAddress,
+    stableTokenAddress: AztecAddress,
+    register: boolean = true,
+    opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
+): Promise<{ contract: NocomStableEscrowV1Contract, secretKey: Fr }> {
+    // get keys for escrow contract
+    let secretKey = Fr.random();
+    let publicKeys = await deriveKeys(secretKey).then(keys => keys.publicKeys)
+    // set up the deployment tx
+    const deployment = NocomStableEscrowV1Contract.deployWithPublicKeys(
+        publicKeys,
+        wallet,
+        lendingPoolAddress,
+        collateralTokenAddress,
+        stableTokenAddress
+    );
+    // add contract decryption keys to wallet (rip PXE 🥀)
+    const instance = await deployment.getInstance();
+    await wallet.registerContract(instance, NocomStableEscrowV1ContractArtifact, secretKey)
+    // deploy contract
+    const contract = await deployment
+        .send(opts.send)
+        .deployed(opts.wait);
+    
+    // if specified, register the escrow with the lending pool
+    // THIS WILL REQUIRE CREATE2 STYLE DEPLOYMENTS ONCE LIQUDIATOR APPROVAL IS REQUIRED
+    if (register) await registerStableEscrowWithPool(from, contract, undefined, opts);
 
     return { contract, secretKey };
 }
