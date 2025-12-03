@@ -54,20 +54,23 @@ export default function MarketTable({ marketType }: MarketTableProps) {
 
   // Filter markets based on marketType
   const filteredDebtMarkets = useMemo(() => {
-    if (marketType === 'debt') {
+    if (marketType === 'all' || marketType === 'debt') {
       return marketConfigs;
     }
     return [];
   }, [marketType, marketConfigs]);
 
   const filteredStableMarkets = useMemo(() => {
-    if (marketType === 'stables') {
+    if (marketType === 'all' || marketType === 'stables') {
       return stableMarketConfigs;
     }
     return [];
   }, [marketType, stableMarketConfigs]);
 
-  const totalFilteredCount = marketType === 'debt' ? filteredDebtMarkets.length : filteredStableMarkets.length;
+  const totalFilteredCount = filteredDebtMarkets.length + filteredStableMarkets.length;
+
+  // Whether to show all columns (for 'all' and 'debt' views)
+  const showAllColumns = marketType === 'all' || marketType === 'debt';
 
   const handleSupplyClick = (market: MarketWithContract) => {
     setSelectedMarket(market);
@@ -102,7 +105,7 @@ export default function MarketTable({ marketType }: MarketTableProps) {
           <thead>
             <tr className="border-b border-surface-border text-xs text-text-muted uppercase tracking-wider">
               <th className="py-4 px-6 font-medium">Market Pair</th>
-              {marketType === 'debt' && (
+              {showAllColumns && (
                 <th className="py-4 px-6 font-medium text-right cursor-pointer hover:text-white transition-colors group">
                   Supply APY <ArrowDown className="inline w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" />
                 </th>
@@ -111,10 +114,10 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                 Borrow APY <ArrowDown className="inline w-3 h-3 ml-1 opacity-0 group-hover:opacity-100" />
               </th>
               <th className="py-4 px-6 font-medium text-right hidden md:table-cell">Total Supply</th>
-              {marketType === 'debt' && (
+              {showAllColumns && (
                 <th className="py-4 px-6 font-medium text-right hidden md:table-cell">Total Borrow</th>
               )}
-              {marketType === 'debt' && (
+              {showAllColumns && (
                 <th className="py-4 px-6 font-medium text-right w-48">Utilization</th>
               )}
               <th className="py-4 px-6 font-medium text-right">Actions</th>
@@ -122,20 +125,22 @@ export default function MarketTable({ marketType }: MarketTableProps) {
           </thead>
           <tbody className="divide-y divide-surface-border text-sm">
             {/* Loading state - show spinner while contracts are loading */}
-            {((marketType === 'debt' && marketConfigs.length === 0) ||
+            {((marketType === 'all' && marketConfigs.length === 0 && stableMarketConfigs.length === 0) ||
+              (marketType === 'debt' && marketConfigs.length === 0) ||
               (marketType === 'stables' && stableMarketConfigs.length === 0)) && (
               <tr>
-                <td colSpan={marketType === 'debt' ? 7 : 4} className="py-12 text-center">
+                <td colSpan={showAllColumns ? 7 : 4} className="py-12 text-center">
                   <Loader2 className="w-8 h-8 animate-spin text-brand-purple mx-auto" />
                 </td>
               </tr>
             )}
             {/* Empty state - show when contracts loaded but no markets */}
             {totalFilteredCount === 0 &&
-              ((marketType === 'debt' && marketConfigs.length > 0) ||
+              ((marketType === 'all' && (marketConfigs.length > 0 || stableMarketConfigs.length > 0)) ||
+               (marketType === 'debt' && marketConfigs.length > 0) ||
                (marketType === 'stables' && stableMarketConfigs.length > 0)) && (
               <tr>
-                <td colSpan={marketType === 'debt' ? 7 : 4} className="py-12 text-center text-text-muted">
+                <td colSpan={showAllColumns ? 7 : 4} className="py-12 text-center text-text-muted">
                   {marketType === 'stables'
                     ? 'No stable pools available yet. Coming soon!'
                     : 'No markets available'}
@@ -294,6 +299,12 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                       </div>
                     </div>
                   </td>
+                  {/* Supply APY - N/A for stable markets */}
+                  {showAllColumns && (
+                    <td className="py-4 px-6 text-right">
+                      <span className="text-xs font-mono text-text-muted/50">N/A</span>
+                    </td>
+                  )}
                   <td className="py-4 px-6 text-right">
                     <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono font-medium bg-green-900/30 text-green-400 border border-green-900/50">
                       {market.borrowApy.toFixed(2)}%
@@ -310,6 +321,18 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                       <span className="text-red-400">Error</span>
                     )}
                   </td>
+                  {/* Total Borrow - N/A for stable markets */}
+                  {showAllColumns && (
+                    <td className="py-4 px-6 text-right hidden md:table-cell">
+                      <span className="text-xs font-mono text-text-muted/50">N/A</span>
+                    </td>
+                  )}
+                  {/* Utilization - N/A for stable markets */}
+                  {showAllColumns && (
+                    <td className="py-4 px-6 text-right">
+                      <span className="text-xs font-mono text-text-muted/50">N/A</span>
+                    </td>
+                  )}
                   <td className="py-4 px-6 text-right">
                     <div className="flex justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
@@ -322,7 +345,7 @@ export default function MarketTable({ marketType }: MarketTableProps) {
                         onClick={() => handleStableBorrowClick(market)}
                         className="px-3 py-1.5 text-xs font-medium bg-brand-purple hover:bg-brand-purple-hover text-white rounded border border-transparent transition-colors"
                       >
-                        Borrow
+                        Mint
                       </button>
                     </div>
                   </td>

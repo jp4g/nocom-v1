@@ -4,10 +4,10 @@ import { useState } from 'react';
 import Filters from './Filters';
 import MarketTable from './MarketTable';
 
-export type MarketType = 'debt' | 'stables';
+export type MarketType = 'all' | 'debt' | 'stables';
 
 export default function MarketsContent() {
-  const [marketType, setMarketType] = useState<MarketType>('debt');
+  const [marketType, setMarketType] = useState<MarketType>('all');
 
   return (
     <>

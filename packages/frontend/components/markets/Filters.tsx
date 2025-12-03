@@ -21,6 +21,16 @@ export default function Filters({ marketType, onMarketTypeChange }: FiltersProps
       </div>
       <div className="flex gap-2">
         <button
+          onClick={() => onMarketTypeChange('all')}
+          className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+            marketType === 'all'
+              ? 'bg-surface border-surface-border text-white'
+              : 'bg-black border-surface-border text-text-muted hover:bg-surface-hover'
+          }`}
+        >
+          All Markets
+        </button>
+        <button
           onClick={() => onMarketTypeChange('debt')}
           className={`px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
             marketType === 'debt'
@@ -38,7 +48,7 @@ export default function Filters({ marketType, onMarketTypeChange }: FiltersProps
               : 'bg-black border-surface-border text-text-muted hover:bg-surface-hover'
           }`}
         >
-          Stables
+          Stablecoins
         </button>
       </div>
     </div>
