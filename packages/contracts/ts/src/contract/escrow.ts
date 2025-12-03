@@ -1,9 +1,9 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { TxReceipt } from "@aztec/stdlib/tx";
-import type { NocomEscrowV1Contract, TokenContract } from "./artifacts";
+import type { NocomEscrowV1Contract, TokenContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
-import { privateToPublicTransferAuthwit } from "./token";
+import { privateTransferAuthwit } from "./token";
 
 /**
  * Register the escrow contract with the lending pool
@@ -42,18 +42,18 @@ export async function depositCollateral(
     wallet: BaseWallet,
     from: AztecAddress,
     escrowContract: NocomEscrowV1Contract,
-    poolAddress: AztecAddress,
     collateralTokenContract: TokenContract,
     amount: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } },
 ): Promise<TxReceipt> {
-    // 1. create authwit
-    const { authwit, nonce } = await privateToPublicTransferAuthwit(
+    // 1. create authwit to transfer collateral tokens to the escrow
+    const { authwit, nonce } = await privateTransferAuthwit(
         wallet,
         from,
         collateralTokenContract,
-        poolAddress,
-        poolAddress,
+        'transfer_private_to_private',
+        escrowContract.address,
+        escrowContract.address,
         amount,
     );
     opts = { send: { from, authWitnesses: [authwit] } };
@@ -115,10 +115,11 @@ export async function repayDebt(
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
     // 1. create authwit
-    const { authwit, nonce } = await privateToPublicTransferAuthwit(
+    const { authwit, nonce } = await privateTransferAuthwit(
         wallet,
         from,
         debtTokenContract,
+        'transfer_private_to_public',
         poolAddress,
         poolAddress,
         amount,
@@ -184,11 +185,12 @@ export async function liquidatePosition(
     assertedDebtTokenPrice: bigint,
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from } }
 ): Promise<TxReceipt> {
-    // 1. create authwit
-    const { authwit, nonce } = await privateToPublicTransferAuthwit(
+    // 1. create authwit to transfer repayAmount of collateral tokens to the pool
+    const { authwit, nonce } = await privateTransferAuthwit(
         wallet,
         from,
         collateralTokenContract,
+        'transfer_private_to_public',
         poolAddress,
         poolAddress,
         repayAmount,

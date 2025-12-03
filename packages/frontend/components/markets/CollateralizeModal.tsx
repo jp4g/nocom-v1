@@ -190,7 +190,6 @@ export default function CollateralizeModal({
           wallet,
           userAddress,
           escrowContractInstance,
-          poolContract.address,
           collateralTokenContract,
           amount
         )

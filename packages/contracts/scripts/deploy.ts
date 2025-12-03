@@ -124,29 +124,8 @@ async function main() {
         USDC_LIQUIDATION_THRESHOLD
     );
 
-
-
     // 10. if population flag set, populate the market with additional accounts
     if (populateDeployment) {
-
-        // TODO: fee juice not working on sandbox >:(
-        // // 10a. claim fee juice
-        // const lenderAddress = managers[0]!.address;
-        // const borrowerAddress = managers[1]!.address;
-        // console.log("Claiming fee juice for population accounts...");
-        // for (let i = 0; i < claims.length; i++) {
-        //     const claimAndPay = new FeeJuicePaymentMethodWithClaim(
-        //         managers[i]!.address,
-        //         claims[i]!,
-        //     );
-        //     console.log("claim and pay method gotten, ", managers[i]!.address.toString())
-        //     const accountDeployMethod = await managers[i]!.getDeployMethod();
-        //     console.log("got deploy method");
-        //     await accountDeployMethod.send({
-        //         from: managers[i]!.address,
-        //         fee: { paymentMethod: claimAndPay },
-        //     }).wait();
-        // }
         
         // 10b. mint tokens to the population accounts
         console.log("Minting tokens to population accounts...");
@@ -200,7 +179,6 @@ async function main() {
             wallet,
             bobAddress,
             zecDebtEscrow,
-            zecDebtPool.address,
             usdc,
             precision(10_000_000n),
         );
@@ -208,7 +186,6 @@ async function main() {
             wallet,
             bobAddress,
             usdcDebtEscrow,
-            usdcDebtPool.address,
             zcash,
             precision(10_000n),
         );

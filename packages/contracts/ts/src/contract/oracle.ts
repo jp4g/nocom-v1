@@ -1,6 +1,6 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
-import type { MockPriceFeedContract } from "./artifacts";
+import type { MockPriceFeedContract } from "../artifacts";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import type { TxReceipt } from "@aztec/stdlib/tx";
 

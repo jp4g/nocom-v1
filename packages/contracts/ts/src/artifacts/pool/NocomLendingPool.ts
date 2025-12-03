@@ -117,8 +117,8 @@ utilization: {
     /** borrow_private(recipient: struct, amount: integer, partial_note: field, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
     borrow_private: ((recipient: AztecAddressLike, amount: (bigint | number), partial_note: FieldLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** collateralize_private(from: struct, amount: integer, authwit_nonce: field) */
-    collateralize_private: ((from: AztecAddressLike, amount: (bigint | number), authwit_nonce: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** collateralize_private(from: struct, amount: integer) */
+    collateralize_private: ((from: AztecAddressLike, amount: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** constructor(admin_address: struct, liquidator_pubkey_x: field, liquidator_pubkey_y: field, price_oracle_address: struct, treasury_address: struct, collateral_token_address: struct, loaned_token_address: struct, max_ltv: integer, liquidation_threshold: integer) */
     constructor: ((admin_address: AztecAddressLike, liquidator_pubkey_x: FieldLike, liquidator_pubkey_y: FieldLike, price_oracle_address: AztecAddressLike, treasury_address: AztecAddressLike, collateral_token_address: AztecAddressLike, loaned_token_address: AztecAddressLike, max_ltv: (bigint | number), liquidation_threshold: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
@@ -138,8 +138,8 @@ utilization: {
     /** get_utilization() */
     get_utilization: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** liquidate_private(amount_to_repay: integer, liquidator_address: struct, liquidation_authwit_nonce: field, liquidator_partial_note: field, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
-    liquidate_private: ((amount_to_repay: (bigint | number), liquidator_address: AztecAddressLike, liquidation_authwit_nonce: FieldLike, liquidator_partial_note: FieldLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** liquidate_private(amount_to_repay: integer, liquidator_address: struct, liquidation_authwit_nonce: field, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
+    liquidate_private: ((amount_to_repay: (bigint | number), liquidator_address: AztecAddressLike, liquidation_authwit_nonce: FieldLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** process_message(message_ciphertext: struct, message_context: struct) */
     process_message: ((message_ciphertext: FieldLike[], message_context: { tx_hash: FieldLike, unique_note_hashes_in_tx: FieldLike[], first_nullifier_in_tx: FieldLike, recipient: AztecAddressLike }) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
@@ -159,8 +159,8 @@ utilization: {
     /** sync_private_state() */
     sync_private_state: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** withdraw_collateral_private(amount: integer, recipient: struct, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
-    withdraw_collateral_private: ((amount: (bigint | number), recipient: AztecAddressLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** withdraw_collateral_private(amount: integer, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
+    withdraw_collateral_private: ((amount: (bigint | number), asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** withdraw_loan_private(amount: integer, recipient: struct, partial_note: field) */
     withdraw_loan_private: ((amount: (bigint | number), recipient: AztecAddressLike, partial_note: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;

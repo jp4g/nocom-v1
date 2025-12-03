@@ -423,8 +423,10 @@ pub contract NocomStablePoolV1 {
                 amount_to_repay,
                 liquidation_authwit_nonce
             ).call(&mut context);
+
+        // 12. 
         
-        // 12. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
+        // 13. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
         NocomLendingPoolV1::at(self_address)
             ._liquidate_public(
                 liquidator_collateral_amount,
@@ -434,7 +436,9 @@ pub contract NocomStablePoolV1 {
                 asserted_collateral_token_price,
             ).enqueue(&mut context);
 
-        // 13. hack: transfer seized collateral directly
+
+
+        // 14. hack: transfer seized collateral directly
         Token::at(config.collateral_token_address)
             .transfer_public_to_private(
                 self_address,

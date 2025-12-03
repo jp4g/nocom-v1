@@ -1,8 +1,8 @@
 import type { BaseWallet } from "@aztec/aztec.js/wallet";
 import type { AztecAddress } from "@aztec/aztec.js/addresses";
 import type { TxReceipt } from "@aztec/stdlib/tx";
-import type { NocomLendingPoolV1Contract, TokenContract } from "./artifacts";
-import { privateToPublicTransferAuthwit } from "./token";
+import type { NocomLendingPoolV1Contract, TokenContract } from "../artifacts";
+import { privateTransferAuthwit } from "./token";
 import type { SendInteractionOptions, WaitOpts } from "@aztec/aztec.js/contracts";
 import type { DebtPosition, LoanPosition } from "../types";
 import type { AztecNode } from "@aztec/aztec.js/node";
@@ -30,10 +30,11 @@ export async function supplyLiquidity(
     opts: { send: SendInteractionOptions, wait?: WaitOpts } = { send: { from }}
 ): Promise<TxReceipt> {
     // 1. create authwit
-    const { authwit, nonce } = await privateToPublicTransferAuthwit(
+    const { authwit, nonce } = await privateTransferAuthwit(
         wallet,
         from,
         tokenContract,
+        'transfer_private_to_public',
         poolContract.address,
         poolContract.address,
         amount,
