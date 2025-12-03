@@ -97,30 +97,27 @@ unconstrained fn test_liquidation() {
 
     // 3. supply 20 ZEC as collateral from borrower escrow to the pool
     let borrower_collateral_amount = 20 * constants::WAD;
-    // 3a. approve the lending pool to spend borrower's ZEC
+    // 3a. approve the escrow to spend borrower's ZEC
     // Safety: ignore
     let collateral_authwit_nonce = unsafe { random() };
     let borrower_collateral_approve_call_iface = Token::at(contracts.zcash)
         .transfer_private_to_private(
             accounts.borrower,
-            contracts.lending_pool,
+            contracts.borrower_escrow,
             borrower_collateral_amount,
             collateral_authwit_nonce
         );
     add_private_authwit_from_call_interface(
         *env,
         accounts.borrower,
-        contracts.lending_pool,
+        contracts.borrower_escrow,
         borrower_collateral_approve_call_iface
     );
     // 3b. supply the collateral to the pool
     env.call_private(
         accounts.borrower,
         NocomEscrowV1::at(contracts.borrower_escrow)
-            .supply_collateral(
-                borrower_collateral_amount,
-                collateral_authwit_nonce
-            )
+            .supply_collateral(borrower_collateral_amount, collateral_authwit_nonce)
     );
     // 3c. check token balances
     let borrower_zec_balance_after_collateral = env.simulate_utility(
@@ -131,12 +128,12 @@ unconstrained fn test_liquidation() {
         borrower_zec_balance_after_collateral == expected_borrower_zec_balance_after_collateral,
         "Borrower ZEC balance incorrect after supplying collateral"
     );
-    let pool_zec_balance_after_collateral = env.simulate_utility(
-        Token::at(contracts.zcash).balance_of_private(contracts.lending_pool)
+    let escrow_zec_balance_after_collateral = env.simulate_utility(
+        Token::at(contracts.zcash).balance_of_private(contracts.borrower_escrow)
     );
     assert(
-        pool_zec_balance_after_collateral == borrower_collateral_amount,
-        "Lending pool ZEC balance incorrect after borrower supplying collateral"
+        escrow_zec_balance_after_collateral == borrower_collateral_amount,
+        "Borrower escrow ZEC balance incorrect after supplying collateral"
     );
 
     // 4. borrow USDC against the collateral
