@@ -15,7 +15,8 @@ interface AccountOverviewProps {
 }
 
 const getHealthColor = (hf: number, hasDebt: boolean) => {
-  if (!hasDebt) return 'text-white';
+  // Infinite health is always green (safe)
+  if (hf === Infinity || !hasDebt) return 'text-green-500';
   if (hf < 1.1) return 'text-red-500';
   if (hf < 1.5) return 'text-yellow-500';
   return 'text-green-500';
@@ -102,7 +103,7 @@ export default function AccountOverview({ state, netWorthUSD, avgHealthFactor, t
                 <Loader2 className="w-4 h-4 animate-spin text-text-muted" />
               ) : (
                 <span className={`text-lg font-mono ${getHealthColor(avgHealthFactor, totalDebtUSD > 0)}`}>
-                  {totalDebtUSD > 0 ? avgHealthFactor.toFixed(2) : '0'}
+                  {totalDebtUSD > 0 ? (avgHealthFactor === Infinity ? '∞' : avgHealthFactor.toFixed(2)) : '∞'}
                 </span>
               )}
             </div>

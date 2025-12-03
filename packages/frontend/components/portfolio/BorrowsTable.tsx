@@ -190,7 +190,7 @@ export default function BorrowsTable({ state, positions, totalUSD }: BorrowsTabl
                     </td>
                     <td className="py-4 px-5 text-right">
                       <span className={`text-sm font-mono font-medium ${getHealthColor(item.healthFactor)}`}>
-                        {item.healthFactor.toFixed(2)}
+                        {item.healthFactor === Infinity ? '∞' : item.healthFactor.toFixed(2)}
                       </span>
                     </td>
                     <td className="py-4 px-5 text-right">

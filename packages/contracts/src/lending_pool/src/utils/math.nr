@@ -8,7 +8,8 @@ use crate::utils::constants::{
     LTV_BASE,
     PROTOCOL_LIQUIDATION_FEE,
     LIQUIDATION_BONUS,
-    BONUS_BASE
+    BONUS_BASE,
+    U128_MAX
 };
 use aztec::oracle::debug_log::debug_log_format;
 
@@ -91,7 +92,7 @@ pub fn calculate_ltv_health(
 
     // 3. determine the current LTV
     if loan_value_scaled == 0 {
-        0
+        U128_MAX
     } else {
         // weight the collateral value by the max 
         let weighted_collateral_value = (collateral_value_scaled * max_ltv) / LTV_BASE;

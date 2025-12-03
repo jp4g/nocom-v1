@@ -12,7 +12,7 @@ import { useEscrow } from '@/hooks/useEscrow';
 import { borrowFromPool } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { math } from '@nocom-v1/contracts/utils';
-import { LTV_BASE, USDC_LTV, ZCASH_LTV, PRICE_BASE } from '@nocom-v1/contracts/constants';
+import { USDC_LTV, ZCASH_LTV, PRICE_BASE, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 
 const { calculateLtvHealth } = math;
 
@@ -32,9 +32,9 @@ const getMaxLtv = (collateralAsset: string): bigint => {
   return ZCASH_LTV;
 };
 
-// Convert LTV_BASE value to percentage
+// Convert LTV value to percentage (LTV values are on scale where 100000 = 100%)
 const ltvToPercent = (ltv: bigint): number => {
-  return Number(ltv) / Number(LTV_BASE) * 100;
+  return Number(ltv) / Number(HEALTH_FACTOR_THRESHOLD) * 100;
 };
 
 // Calculate the health bar indicator position (0-100%)
@@ -116,9 +116,20 @@ export default function BorrowModal({
 
   const debtPrice = useMemo(() => {
     const debtSymbol = market.loanAsset.toLowerCase();
-    for (const [, priceState] of prices.entries()) {
+    // USDC is always $1
+    if (debtSymbol === 'usdc') return 10000n;
+    // For other tokens, find the matching price
+    for (const [address, priceState] of prices.entries()) {
       if (priceState.status === 'loaded' && priceState.price !== undefined) {
-        if (debtSymbol === 'usdc') return 10000n;
+        if (address.toLowerCase().includes(debtSymbol) ||
+            (debtSymbol === 'zec' && priceState.price !== 10000n)) {
+          return priceState.price;
+        }
+      }
+    }
+    // Fallback: find any non-USDC price for ZEC
+    for (const [, priceState] of prices.entries()) {
+      if (priceState.status === 'loaded' && priceState.price !== undefined && priceState.price !== 10000n) {
         return priceState.price;
       }
     }
@@ -152,7 +163,12 @@ export default function BorrowModal({
 
   // Calculate current LTV health
   const currentHealthFactor = useMemo(() => {
-    if (currentPosition.collateral === 0n || currentPosition.debt === 0n) {
+    // No debt means infinite health (safe)
+    if (currentPosition.debt === 0n) {
+      return Infinity;
+    }
+    // No collateral with debt means critical (0)
+    if (currentPosition.collateral === 0n) {
       return 0;
     }
 
@@ -164,7 +180,7 @@ export default function BorrowModal({
       maxLtv
     );
 
-    return Number(healthRaw) / Number(LTV_BASE);
+    return Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
   }, [currentPosition, collateralPrice, debtPrice, maxLtv]);
 
   // Calculate current LTV percentage
@@ -200,18 +216,19 @@ export default function BorrowModal({
         maxLtv
       );
 
-      return Number(healthRaw) / Number(LTV_BASE);
+      return Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
     } catch {
       return currentHealthFactor;
     }
   }, [inputValue, currentPosition, collateralPrice, debtPrice, maxLtv, currentHealthFactor]);
 
   // Calculate max borrowable amount based on collateral and health factor
+  // Note: LTV values (USDC_LTV, ZCASH_LTV) are on a scale where 100000 = 100%
   const maxBorrowable = useMemo(() => {
     if (currentPosition.collateral === 0n) return 0n;
 
     const collateralValue = (currentPosition.collateral * collateralPrice) / PRICE_BASE;
-    const maxDebtValue = (collateralValue * maxLtv) / LTV_BASE;
+    const maxDebtValue = (collateralValue * maxLtv) / HEALTH_FACTOR_THRESHOLD;
     const maxDebtAmount = (maxDebtValue * PRICE_BASE) / debtPrice;
 
     const availableToBorrow = maxDebtAmount > currentPosition.debt

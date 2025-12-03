@@ -9,7 +9,7 @@ import { NocomLendingPoolV1Contract, NocomEscrowV1Contract } from '@nocom-v1/con
 import { batchSimulateUtilization } from '@/lib/contract/utilization';
 import { batchSimulatePrices } from '@/lib/contract/price';
 import { batchSimulateDebtPosition, batchSimulateLoanPosition } from '@/lib/contract/position';
-import { EPOCH_LENGTH, LTV_BASE, USDC_LTV, ZCASH_LTV } from '@nocom-v1/contracts/constants';
+import { EPOCH_LENGTH, USDC_LTV, ZCASH_LTV, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 import { DebtPosition as ContractDebtPosition } from '@nocom-v1/contracts/types';
 import { math } from '@nocom-v1/contracts/utils';
 
@@ -526,8 +526,8 @@ export function DataProvider({ children }: PropsWithChildren) {
             // Get max LTV based on collateral asset
             const maxLtv = marketConfig.collateralAsset.toUpperCase() === 'USDC' ? USDC_LTV : ZCASH_LTV;
 
-            // Calculate health factor
-            let healthFactor = 1;
+            // Calculate health factor (raw value is scaled by HEALTH_FACTOR_THRESHOLD where 100000 = 1.0)
+            let healthFactor = 0; // Default to 0 if no collateral (critical)
             if (contractPosition.collateral > 0n && totalDebt > 0n) {
               const healthRaw = calculateLtvHealth(
                 loanPriceBigint,
@@ -536,7 +536,9 @@ export function DataProvider({ children }: PropsWithChildren) {
                 contractPosition.collateral,
                 maxLtv
               );
-              healthFactor = Number(healthRaw) / Number(LTV_BASE);
+              // If healthRaw is 0 but we have collateral and debt, the debt is so small
+              // that it rounded to 0 in integer math - treat as infinite health
+              healthFactor = healthRaw === 0n ? Infinity : Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
             }
 
             debtPositions.push({

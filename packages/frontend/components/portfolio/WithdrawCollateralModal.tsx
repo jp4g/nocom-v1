@@ -12,7 +12,7 @@ import { parseTokenAmount } from '@/lib/utils';
 import { withdrawCollateral } from '@nocom-v1/contracts/contract';
 import { simulationQueue } from '@/lib/utils/simulationQueue';
 import { math } from '@nocom-v1/contracts/utils';
-import { LTV_BASE, USDC_LTV, ZCASH_LTV, PRICE_BASE } from '@nocom-v1/contracts/constants';
+import { USDC_LTV, ZCASH_LTV, PRICE_BASE, HEALTH_FACTOR_THRESHOLD } from '@nocom-v1/contracts/constants';
 
 const { calculateLtvHealth } = math;
 
@@ -33,9 +33,9 @@ const getMaxLtv = (collateralAsset: string): bigint => {
   return ZCASH_LTV;
 };
 
-// Convert LTV_BASE value to percentage
+// Convert LTV value to percentage (LTV values are on scale where 100000 = 100%)
 const ltvToPercent = (ltv: bigint): number => {
-  return Number(ltv) / Number(LTV_BASE) * 100;
+  return Number(ltv) / Number(HEALTH_FACTOR_THRESHOLD) * 100;
 };
 
 // Calculate the health bar indicator position (0-100%)
@@ -154,8 +154,13 @@ export default function WithdrawCollateralModal({
 
   // Calculate current health factor
   const currentHealthFactor = useMemo(() => {
-    if (currentCollateral === 0n || currentDebt === 0n) {
-      return 0; // No debt means infinite health
+    // No debt means infinite health (safe)
+    if (currentDebt === 0n) {
+      return Infinity;
+    }
+    // No collateral with debt means critical (0)
+    if (currentCollateral === 0n) {
+      return 0;
     }
 
     const healthRaw = calculateLtvHealth(
@@ -166,7 +171,9 @@ export default function WithdrawCollateralModal({
       maxLtv
     );
 
-    return Number(healthRaw) / Number(LTV_BASE);
+    // If healthRaw is 0 but we have collateral and debt, the debt is so small
+    // that it rounded to 0 in integer math - treat as infinite health
+    return healthRaw === 0n ? Infinity : Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
   }, [currentCollateral, currentDebt, collateralPrice, debtPrice, maxLtv]);
 
   // Calculate current LTV percentage
@@ -192,14 +199,14 @@ export default function WithdrawCollateralModal({
         ? currentCollateral - withdrawAmount
         : 0n;
 
-      // If no debt, health is infinite
+      // If no debt, health is infinite (safe)
       if (currentDebt === 0n) {
-        return 0; // 0 means infinite/no debt
+        return Infinity;
       }
 
-      // If withdrawing all collateral but have debt, health is 0 (bad)
+      // If withdrawing all collateral but have debt, health is 0 (critical)
       if (newCollateral === 0n && currentDebt > 0n) {
-        return 0.01; // Very low health to indicate danger
+        return 0;
       }
 
       const healthRaw = calculateLtvHealth(
@@ -210,25 +217,27 @@ export default function WithdrawCollateralModal({
         maxLtv
       );
 
-      return Number(healthRaw) / Number(LTV_BASE);
+      // If healthRaw is 0 but we have collateral and debt, the debt is so small
+      // that it rounded to 0 in integer math - treat as infinite health
+      return healthRaw === 0n ? Infinity : Number(healthRaw) / Number(HEALTH_FACTOR_THRESHOLD);
     } catch {
       return currentHealthFactor;
     }
   }, [inputValue, currentCollateral, currentDebt, collateralPrice, debtPrice, maxLtv, currentHealthFactor]);
 
   // Calculate max withdrawable amount (keeping health >= 1.0)
+  // LTV values are on a scale where 100000 = 100%
   const maxWithdrawable = useMemo(() => {
     // If no debt, can withdraw everything
     if (currentDebt === 0n) {
       return currentCollateral;
     }
 
-    // Max withdraw = collateral - (debt_value / (max_ltv * collateral_price))
-    // We need to keep: collateral_value * max_ltv >= debt_value
-    // So min_collateral_value = debt_value / max_ltv
+    // We need to keep: collateral_value * max_ltv / HEALTH_FACTOR_THRESHOLD >= debt_value
+    // So min_collateral_value = debt_value * HEALTH_FACTOR_THRESHOLD / max_ltv
     // min_collateral = min_collateral_value * PRICE_BASE / collateral_price
     const debtValue = (currentDebt * debtPrice) / PRICE_BASE;
-    const minCollateralValue = (debtValue * LTV_BASE) / maxLtv;
+    const minCollateralValue = (debtValue * HEALTH_FACTOR_THRESHOLD) / maxLtv;
     const minCollateral = (minCollateralValue * PRICE_BASE) / collateralPrice;
 
     // Add a small buffer (1%) to ensure we stay safe
