@@ -92,7 +92,7 @@ async function main() {
     // 6. deploy the price oracle contract and set prices
     const priceOracle = await deployPriceOracleContract(wallet, adminAddress);
     const assetAddresses = [usdc.address, zcash.address];
-    const prices = [precision(1n, 4n), precision(500n, 4n)];
+    const prices = [precision(1n, 4n), precision(300n, 4n)];
     await updateOraclePrice(adminAddress, priceOracle, assetAddresses, prices);
 
     // 7. deploy the usdc -> zec lending pool contract

@@ -159,8 +159,8 @@ utilization: {
     /** sync_private_state() */
     sync_private_state: (() => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
-    /** withdraw_collateral_private(amount: integer, recipient: struct, partial_note: field, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
-    withdraw_collateral_private: ((amount: (bigint | number), recipient: AztecAddressLike, partial_note: FieldLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
+    /** withdraw_collateral_private(amount: integer, recipient: struct, asserted_collateral_token_price: integer, asserted_loaned_token_price: integer) */
+    withdraw_collateral_private: ((amount: (bigint | number), recipient: AztecAddressLike, asserted_collateral_token_price: (bigint | number), asserted_loaned_token_price: (bigint | number)) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;
 
     /** withdraw_loan_private(amount: integer, recipient: struct, partial_note: field) */
     withdraw_loan_private: ((amount: (bigint | number), recipient: AztecAddressLike, partial_note: FieldLike) => ContractFunctionInteraction) & Pick<ContractMethod, 'selector'>;

@@ -111,9 +111,20 @@ export default function WithdrawCollateralModal({
   const debtPrice = useMemo(() => {
     if (!collateralPosition) return 10000n;
     const debtSymbol = collateralPosition.loanAsset.toLowerCase();
-    for (const [, priceState] of prices.entries()) {
+    // USDC is always $1
+    if (debtSymbol === 'usdc') return 10000n;
+    // For other tokens, find the matching price
+    for (const [address, priceState] of prices.entries()) {
       if (priceState.status === 'loaded' && priceState.price !== undefined) {
-        if (debtSymbol === 'usdc') return 10000n;
+        if (address.toLowerCase().includes(debtSymbol) ||
+            (debtSymbol === 'zec' && priceState.price !== 10000n)) {
+          return priceState.price;
+        }
+      }
+    }
+    // Fallback: find any non-USDC price for ZEC
+    for (const [, priceState] of prices.entries()) {
+      if (priceState.status === 'loaded' && priceState.price !== undefined && priceState.price !== 10000n) {
         return priceState.price;
       }
     }
@@ -292,6 +303,14 @@ export default function WithdrawCollateralModal({
       const amount = parseTokenAmount(inputValue);
       setProcessingStep('Withdrawing collateral...');
 
+      console.log("Withdrawing collateral:", {
+        userAddress: userAddress.toString(),
+        escrowContract: escrowContract.address.toString(),
+        amount,
+        collateralPrice,
+        debtPrice
+      });
+      
       const txReceipt = await simulationQueue.enqueue(() =>
         withdrawCollateral(
           userAddress,

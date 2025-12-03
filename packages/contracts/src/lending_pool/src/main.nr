@@ -1,7 +1,4 @@
-pub mod utils;
-pub mod types;
-
-use dep::aztec::macros::aztec;
+use aztec::macros::aztec;
 
 #[aztec]
 pub contract NocomLendingPoolV1 {
@@ -12,11 +9,11 @@ pub contract NocomLendingPoolV1 {
         protocol_types::{address::AztecAddress, traits::ToField},
         state_vars::{Map, PrivateMutable, PublicImmutable, PublicMutable},
     };
-    use crate::{
-        utils::{
-            constants, math, time,
-            contract_methods::{_update_loan, _get_loan_value},
-        },
+    use nocom_pool_common::{
+        constants,
+        math,
+        time,
+        contract_methods::{_update_loan, _get_loan_value},
         types::{
             config::Config, loan_note::LoanNote,
             utilization::Utilization, collateral_note::CollateralNote
@@ -118,7 +115,7 @@ pub contract NocomLendingPoolV1 {
      * @param authwit_nonce - the authwit nonce authorizing `transfer_private_to_public` 
      */
     #[external("private")]
-    fn collateralize_private(from: AztecAddress, amount: u128, authwit_nonce: Field) {
+    fn collateralize_private(from: AztecAddress, amount: u128) {
         // 1. get the config and caller
         let config = storage.config.read();
         let depositor = context.msg_sender().unwrap();
@@ -133,11 +130,6 @@ pub contract NocomLendingPoolV1 {
             };
             CollateralNote::new(depositor, collateral_amount)
         }).emit(depositor, MessageDelivery.CONSTRAINED_ONCHAIN);
-
-        // 3. pull in tokens to collateralize
-        Token::at(config.collateral_token_address)
-            .transfer_private_to_public(from, context.this_address(), amount, authwit_nonce)
-            .call(&mut context);
     }
 
     /**
@@ -258,17 +250,16 @@ pub contract NocomLendingPoolV1 {
 
     /**
      * Withdraw supplied collateral from the pool
+     * @notice - collateral is not actually stored in the pool, this is just the accounting
+     *           for privately escrowed collateral
      *
      * @param amount - the amount of tokens to withdraw
-     * @param partial_note - the partial commitment to transfer withdrawn tokens to
      * @param asserted_collateral_token_price - the price of the collateral token as asserted in
      * @param asserted_loaned_token_price - the price of the loaned token as asserted in
      */
     #[external("private")]
     fn withdraw_collateral_private(
         amount: u128,
-        recipient: AztecAddress, // todo: remove once partial note working
-        partial_note: Field,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
     ) {
@@ -312,21 +303,15 @@ pub contract NocomLendingPoolV1 {
             );
             CollateralNote::new(withdrawer, new_collateral_amount)
         });
+        collateral_emission.emit(withdrawer, MessageDelivery.CONSTRAINED_ONCHAIN);
         
-        // 6. transfer collateral tokens to withdrawer and check prices
+        // 6. check prices
         NocomLendingPoolV1::at(self_address)
             ._withdraw_collateral_public(
                 asserted_collateral_token_price,
                 asserted_loaned_token_price,
-                amount,
-                partial_note,
             )
             .enqueue(&mut context);
-
-        // 7. hack: transfer withdrawn tokens directly
-        Token::at(config.collateral_token_address)
-            .transfer_public_to_private(self_address, recipient, amount, 0)
-            .call(&mut context);
     }
 
     /**
@@ -425,15 +410,25 @@ pub contract NocomLendingPoolV1 {
         NocomLendingPoolV1::at(self_address)._repay_public(amount).enqueue(&mut context);
     }
 
+    /**
+     * Liquidate an undercollateralized position
+     * @notice - collateral seizure occurs in the escrow contract
+     *
+     * @param amount_to_repay - the amount of loan tokens to repay on behalf of the borrower
+     * @param liquidator_address - the address of the liquidator paying the loan back
+     * @param liquidation_authwit_nonce - the authwit nonce authorizing `transfer_private_to_public`
+     * @param asserted_collateral_token_price - the price of the collateral token as asserted by the caller
+     * @param asserted_loaned_token_price - the price of the loaned token as
+     * @return (liquidator_collateral_amount, protocol_fee, treasury_address)
+     */
     #[external("private")]
     fn liquidate_private(
         amount_to_repay: u128,
         liquidator_address: AztecAddress,
         liquidation_authwit_nonce: Field,
-        liquidator_partial_note: Field,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
-    ) {
+    ) -> (u128, u128, AztecAddress) {
         // 1. get the config and caller
         let config = storage.config.read();
         let liquidator = context.msg_sender().unwrap();
@@ -516,9 +511,7 @@ pub contract NocomLendingPoolV1 {
             remaining_collateral_amount as Field,
         ]);
 
-        // 11. pull in tokens to repay
-        // NOTE: this could be public but we leave it private so liquidator can prepare for liquidation
-        //       without leaking that they are acquiring the funds to do so
+        // 11. transfer the loan token repayment into the pool
         Token::at(config.loaned_token_address)
             .transfer_private_to_public(
                 liquidator_address,
@@ -530,22 +523,13 @@ pub contract NocomLendingPoolV1 {
         // 12. update utilization, transfer seized collateral to liquidator and protocol fee to treasury
         NocomLendingPoolV1::at(self_address)
             ._liquidate_public(
-                liquidator_collateral_amount,
-                protocol_fee,
-                liquidator_partial_note,
+                amount_to_repay,
                 asserted_loaned_token_price,
                 asserted_collateral_token_price,
             ).enqueue(&mut context);
 
-        // 13. hack: transfer seized collateral directly
-        Token::at(config.collateral_token_address)
-            .transfer_public_to_private(
-                self_address,
-                liquidator_address,
-                liquidator_collateral_amount,
-                0
-            )
-            .call(&mut context);
+        // 13. return amounts to escrow for private transfer
+        (liquidator_collateral_amount, protocol_fee, config.treasury_address)
     }
 
     /// PUBLIC INTERNAL ///
@@ -680,8 +664,6 @@ pub contract NocomLendingPoolV1 {
     fn _withdraw_collateral_public(
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128,
-        amount_withdrawn: u128,
-        partial_note: Field
     ) {
         // 1. check prices
         // FOR SOME REASON CANNOT MAKE THIS A CONTRACT LIBRARY METHODS
@@ -710,20 +692,12 @@ pub contract NocomLendingPoolV1 {
             loaned_price <= asserted_loaned_token_price,
             "Loaned price higher than asserted",
         );
-
-        // 2. transfer collateral tokens to partial note commitment
-        // let self_address = context.this_address();
-        // Token::at(config.collateral_token_address)
-        //     .transfer_public_to_commitment(self_address, partial_note, amount_withdrawn, 0)
-        //     .call(&mut context);
     }
 
     #[external("public")]
     #[internal]
     fn _liquidate_public(   
-        liquidator_collateral_amount: u128,
-        protocol_fee_amount: u128,
-        liquidator_partial_note: Field,
+        liquidated_amount: u128,
         asserted_collateral_token_price: u128,
         asserted_loaned_token_price: u128
     ) {
@@ -754,26 +728,10 @@ pub contract NocomLendingPoolV1 {
             loaned_price <= asserted_loaned_token_price,
             "Loaned price higher than asserted",
         );
-        // 2. transfer seized collateral to liquidator
-        let config = storage.config.read();
-        let self_address = context.this_address();
-        // Token::at(config.collateral_token_address)
-        //     .transfer_public_to_commitment(
-        //         self_address,
-        //         liquidator_partial_note,
-        //         liquidator_collateral_amount,
-        //         0
-        //     )
-        //     .call(&mut context);
-        // 3. transfer protocol fee to treasury
-        Token::at(config.collateral_token_address)
-            .transfer_public_to_public(
-                self_address,
-                config.treasury_address,
-                protocol_fee_amount,
-                0
-            )
-            .call(&mut context);
+        // 2. update utilization
+        let mut utilization = storage.utilization.read();
+        utilization.total_borrowed -= liquidated_amount;
+        storage.utilization.write(utilization);
     }
 
     /// UTILITY & VIEW FUNCTIONS ///

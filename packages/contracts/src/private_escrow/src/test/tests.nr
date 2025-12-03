@@ -13,10 +13,8 @@ use crate::{
     NocomEscrowV1
 };
 use token_contract::Token;
-use nocom_pool::{
-    utils::{math, constants},
-    NocomLendingPoolV1
-};
+use nocom_pool::NocomLendingPoolV1;
+use nocom_pool_common::{math, constants};
 use mock_price_feed::MockPriceFeed;
 
 #[test]
@@ -103,7 +101,7 @@ unconstrained fn test_liquidation() {
     // Safety: ignore
     let collateral_authwit_nonce = unsafe { random() };
     let borrower_collateral_approve_call_iface = Token::at(contracts.zcash)
-        .transfer_private_to_public(
+        .transfer_private_to_private(
             accounts.borrower,
             contracts.lending_pool,
             borrower_collateral_amount,
@@ -133,8 +131,8 @@ unconstrained fn test_liquidation() {
         borrower_zec_balance_after_collateral == expected_borrower_zec_balance_after_collateral,
         "Borrower ZEC balance incorrect after supplying collateral"
     );
-    let pool_zec_balance_after_collateral = env.view_public(
-        Token::at(contracts.zcash).balance_of_public(contracts.lending_pool)
+    let pool_zec_balance_after_collateral = env.simulate_utility(
+        Token::at(contracts.zcash).balance_of_private(contracts.lending_pool)
     );
     assert(
         pool_zec_balance_after_collateral == borrower_collateral_amount,
@@ -272,21 +270,6 @@ unconstrained fn test_liquidation() {
         collateral_note_after_liquidation.amount as Field,
         loan_note_after_liquidation.amount as Field
     ]);
-
-    // let (ltv_after_liquidation, liquidation_health_after_liquidation) = env.simulate_utility(
-    //     NocomLendingPoolV1::at(contracts.lending_pool)
-    //         .get_health_factor(
-    //             contracts.borrower_escrow,
-    //             expected_borrow_epoch,
-    //             zec_asserted_price,
-    //             usdc_asserted_price
-    //         )
-    // );
-
-    // debug_log_format("ltv after liquidation: {0}\nliq threshold after liquidation: {1}", [
-    //     ltv_after_liquidation as Field,
-    //     liquidation_health_after_liquidation as Field
-    // ]);
 }
 
 // test cases:
