@@ -2,9 +2,10 @@ import { Hono } from 'hono';
 import type { Asset, AddAssetRequest, AddAssetResponse, GetPricesRequest, GetPricesResponse } from '@liquidator/shared';
 import { HTTP_STATUS, ERROR_CODES, isValidAssetSymbol } from '@liquidator/shared';
 import type { AssetStorage } from './storage';
+import type { PriceMonitor } from './price-monitor';
 import type { Logger } from 'pino';
 
-export function createPriceServiceAPI(storage: AssetStorage, logger: Logger) {
+export function createPriceServiceAPI(storage: AssetStorage, priceMonitor: PriceMonitor, logger: Logger) {
   const app = new Hono();
 
   // Health check endpoint
@@ -162,6 +163,91 @@ export function createPriceServiceAPI(storage: AssetStorage, logger: Logger) {
     };
 
     return c.json(response);
+  });
+
+  // Get current update interval
+  app.get('/config/update-interval', (c) => {
+    const seconds = priceMonitor.getUpdateInterval();
+    return c.json({
+      updateIntervalSeconds: seconds,
+    });
+  });
+
+  // Set update interval (in seconds)
+  app.put('/config/update-interval', async (c) => {
+    try {
+      const body = await c.req.json();
+      const { seconds } = body;
+
+      if (typeof seconds !== 'number' || seconds < 1) {
+        return c.json(
+          { success: false, error: 'Invalid seconds value. Must be a positive number.' },
+          HTTP_STATUS.BAD_REQUEST
+        );
+      }
+
+      priceMonitor.setUpdateInterval(seconds);
+      logger.info({ seconds }, 'Update interval changed via API');
+
+      return c.json({
+        success: true,
+        updateIntervalSeconds: seconds,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error setting update interval');
+      return c.json(
+        { success: false, error: 'Internal server error' },
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+  });
+
+  // Manually set price for an asset (triggers on-chain update)
+  app.post('/prices/:asset/set', async (c) => {
+    try {
+      const asset = c.req.param('asset').toUpperCase();
+      const body = await c.req.json();
+      const { price } = body;
+
+      if (typeof price !== 'number' || price <= 0) {
+        return c.json(
+          { success: false, error: 'Invalid price. Must be a positive number (e.g., 1.23 for $1.23).' },
+          HTTP_STATUS.BAD_REQUEST
+        );
+      }
+
+      // Check if asset is tracked
+      if (!storage.isTracked(asset)) {
+        return c.json(
+          { success: false, error: `Asset ${asset} is not being tracked` },
+          HTTP_STATUS.NOT_FOUND
+        );
+      }
+
+      logger.info({ asset, price }, 'Manual price set requested via API');
+
+      const result = await priceMonitor.setPrice(asset, price);
+
+      if (result.success) {
+        return c.json({
+          success: true,
+          asset,
+          price,
+          txHash: result.txHash,
+        });
+      } else {
+        return c.json(
+          { success: false, error: result.error },
+          HTTP_STATUS.INTERNAL_SERVER_ERROR
+        );
+      }
+    } catch (error) {
+      logger.error({ error }, 'Error setting price');
+      return c.json(
+        { success: false, error: 'Internal server error' },
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
   });
 
   return app;

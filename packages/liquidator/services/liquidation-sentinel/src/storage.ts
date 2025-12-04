@@ -3,7 +3,7 @@ import type { EscrowAccount, CollateralPosition } from '@liquidator/shared';
 /**
  * In-memory storage for escrow accounts and their positions
  */
-export class NoteMonitorStorage {
+export class SentinelStorage {
   private escrows: Map<string, EscrowAccount> = new Map();
   private positions: Map<string, CollateralPosition> = new Map(); // key: escrowAddress
   private collateralIndex: Map<string, Set<string>> = new Map(); // collateralAsset => Set of escrowAddresses

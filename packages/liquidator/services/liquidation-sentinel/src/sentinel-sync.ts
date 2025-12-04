@@ -1,6 +1,7 @@
-import type { NoteMonitorStorage } from './storage';
+import type { SentinelStorage } from './storage';
 import type { AztecClient, PositionData } from './aztec-client';
-import type { CollateralPosition, EscrowAccount, Price, LiquidationTriggerRequest } from '@liquidator/shared';
+import type { LiquidationExecutor } from './liquidation-executor';
+import type { CollateralPosition, EscrowAccount, Price } from '@liquidator/shared';
 import type { Logger } from 'pino';
 import { math } from '@nocom-v1/contracts/utils';
 import {
@@ -11,11 +12,9 @@ import {
   BORROW_INTEREST,
 } from '@nocom-v1/contracts/constants';
 
-export interface NoteSyncConfig {
+export interface SentinelSyncConfig {
   syncInterval: number; // milliseconds
   priceServiceUrl?: string; // URL to fetch initial prices from
-  liquidationEngineUrl?: string; // URL to trigger liquidations
-  liquidationApiKey?: string; // API key for liquidation engine
 }
 
 interface PriceCache {
@@ -26,15 +25,14 @@ interface PriceCache {
 }
 
 /**
- * Note Synchronization Service
- * Handles periodic syncing of escrow positions using the Aztec node
- * Maintains a price cache updated via push from price-service
- * Calculates health factors and triggers liquidations when needed
+ * Sentinel Synchronization Service
+ * Handles periodic syncing of escrow positions and executes liquidations directly
  */
-export class NoteSyncService {
-  private storage: NoteMonitorStorage;
+export class SentinelSyncService {
+  private storage: SentinelStorage;
   private aztecClient: AztecClient;
-  private config: NoteSyncConfig;
+  private liquidationExecutor: LiquidationExecutor;
+  private config: SentinelSyncConfig;
   private logger: Logger;
   private intervalId?: Timer;
   private isRunning: boolean = false;
@@ -43,13 +41,15 @@ export class NoteSyncService {
   private priceCache: PriceCache = {};
 
   constructor(
-    storage: NoteMonitorStorage,
+    storage: SentinelStorage,
     aztecClient: AztecClient,
-    config: NoteSyncConfig,
+    liquidationExecutor: LiquidationExecutor,
+    config: SentinelSyncConfig,
     logger: Logger
   ) {
     this.storage = storage;
     this.aztecClient = aztecClient;
+    this.liquidationExecutor = liquidationExecutor;
     this.config = config;
     this.logger = logger;
   }
@@ -77,18 +77,17 @@ export class NoteSyncService {
   }
 
   /**
-   * Start the note synchronization loop
-   * Fetches initial prices and begins periodic position syncing
+   * Start the synchronization loop
    */
   async start(): Promise<void> {
     if (this.isRunning) {
-      this.logger.warn('Note sync service is already running');
+      this.logger.warn('Sentinel sync service is already running');
       return;
     }
 
     this.logger.info(
       { interval: this.config.syncInterval },
-      'Starting note sync service'
+      'Starting sentinel sync service'
     );
 
     // Fetch initial prices from price-service
@@ -105,7 +104,7 @@ export class NoteSyncService {
   }
 
   /**
-   * Stop the note synchronization loop
+   * Stop the synchronization loop
    */
   stop(): void {
     if (this.intervalId) {
@@ -114,7 +113,7 @@ export class NoteSyncService {
     }
 
     this.isRunning = false;
-    this.logger.info('Note sync service stopped');
+    this.logger.info('Sentinel sync service stopped');
   }
 
   /**
@@ -157,7 +156,6 @@ export class NoteSyncService {
 
   /**
    * Handle a price update pushed from price-service
-   * Updates the cache and immediately checks health for affected escrows
    */
   async handlePriceUpdate(asset: string, newPrice: number): Promise<void> {
     const symbol = asset.toUpperCase();
@@ -190,8 +188,6 @@ export class NoteSyncService {
     const escrows = this.storage.getAllEscrows();
     const changedSymbol = changedAsset.toUpperCase();
 
-    // Filter escrows where the collateral or debt token matches the changed asset
-    // We need to convert token addresses to symbols for comparison
     const affectedEscrows = escrows.filter(e => {
       const collateralSymbol = this.aztecClient.getTokenSymbol(e.collateralToken);
       const debtSymbol = this.aztecClient.getTokenSymbol(e.debtToken);
@@ -221,7 +217,6 @@ export class NoteSyncService {
    * Check health for a single escrow using cached prices
    */
   private async checkEscrowHealth(escrow: EscrowAccount): Promise<void> {
-    // Convert token addresses to symbols for price lookup
     const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken);
     const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken);
 
@@ -233,7 +228,6 @@ export class NoteSyncService {
       return;
     }
 
-    // Get cached prices using symbols
     const collateralPriceData = this.priceCache[collateralSymbol];
     const debtPriceData = this.priceCache[debtSymbol];
 
@@ -274,7 +268,7 @@ export class NoteSyncService {
     const totalDebt = positionData.debtAmount + interest;
 
     // Check health
-    await this.checkHealthAndTriggerLiquidation(
+    await this.checkHealthAndExecuteLiquidation(
       escrow,
       positionData,
       totalDebt,
@@ -296,7 +290,6 @@ export class NoteSyncService {
 
   /**
    * Run a single synchronization cycle
-   * Syncs position data from chain (prices come from cache)
    */
   private async runSyncCycle(): Promise<void> {
     try {
@@ -314,17 +307,16 @@ export class NoteSyncService {
 
       this.logger.info(
         { escrowCount: escrows.length },
-        'Running note sync cycle'
+        'Running sentinel sync cycle'
       );
 
-      // Sync each escrow using cached prices
       for (const escrow of escrows) {
         await this.syncEscrow(escrow);
       }
 
-      this.logger.info('Note sync cycle completed');
+      this.logger.info('Sentinel sync cycle completed');
     } catch (error) {
-      this.logger.error({ error }, 'Error in note sync cycle');
+      this.logger.error({ error }, 'Error in sentinel sync cycle');
     }
   }
 
@@ -380,7 +372,6 @@ export class NoteSyncService {
       );
 
       // Check health factor using cached prices
-      // Convert token addresses to symbols for price lookup
       const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken);
       const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken);
 
@@ -389,7 +380,7 @@ export class NoteSyncService {
         const debtPriceData = this.priceCache[debtSymbol];
 
         if (collateralPriceData && debtPriceData) {
-          await this.checkHealthAndTriggerLiquidation(
+          await this.checkHealthAndExecuteLiquidation(
             escrow,
             positionData,
             totalDebt,
@@ -408,9 +399,9 @@ export class NoteSyncService {
   }
 
   /**
-   * Check health factor and trigger liquidation if needed
+   * Check health factor and execute liquidation directly if needed
    */
-  private async checkHealthAndTriggerLiquidation(
+  private async checkHealthAndExecuteLiquidation(
     escrow: EscrowAccount,
     positionData: PositionData,
     totalDebt: bigint,
@@ -430,7 +421,7 @@ export class NoteSyncService {
     const collateralPriceBigint = BigInt(Math.round(collateralPrice * 10000));
     const debtPriceBigint = BigInt(Math.round(debtPrice * 10000));
 
-    // Calculate health factor using the contract's utility function
+    // Calculate health factor
     const healthFactor = math.calculateLtvHealth(
       debtPriceBigint,
       totalDebt,
@@ -453,7 +444,6 @@ export class NoteSyncService {
     );
 
     // Check if position is liquidatable (health factor < 1.0)
-    // HEALTH_FACTOR_THRESHOLD = 100000 (represents 1.0 with 5 decimal places)
     if (healthFactor < HEALTH_FACTOR_THRESHOLD) {
       this.logger.warn(
         {
@@ -464,8 +454,27 @@ export class NoteSyncService {
         'Position is liquidatable!'
       );
 
-      // Trigger liquidation
-      await this.triggerLiquidation(escrow, positionData, totalDebt, healthFactor, collateralPrice, debtPrice);
+      // Execute liquidation directly
+      const result = await this.liquidationExecutor.executeLiquidation({
+        escrow,
+        positionData,
+        totalDebt,
+        healthFactor,
+        collateralPrice,
+        debtPrice,
+      });
+
+      if (result.success) {
+        this.logger.info(
+          { escrow: escrow.address, txHash: result.txHash, duration: result.duration },
+          'Liquidation executed successfully'
+        );
+      } else {
+        this.logger.error(
+          { escrow: escrow.address, error: result.error, duration: result.duration },
+          'Liquidation execution failed'
+        );
+      }
     }
   }
 
@@ -473,76 +482,11 @@ export class NoteSyncService {
    * Get the liquidation threshold for a given collateral token address
    */
   private getLiquidationThreshold(collateralTokenAddress: string): bigint {
-    // Convert token address to symbol for threshold lookup
     const symbol = this.aztecClient.getTokenSymbol(collateralTokenAddress);
     if (symbol === 'ZEC') {
       return ZCASH_LIQUIDATION_THRESHOLD;
     }
-    // Default to USDC threshold for USDC and other tokens
     return USDC_LIQUIDATION_THRESHOLD;
-  }
-
-  /**
-   * Trigger liquidation by posting to the liquidation engine
-   */
-  private async triggerLiquidation(
-    escrow: EscrowAccount,
-    positionData: PositionData,
-    totalDebt: bigint,
-    healthFactor: bigint,
-    collateralPrice: number,
-    debtPrice: number
-  ): Promise<void> {
-    if (!this.config.liquidationEngineUrl) {
-      this.logger.error('No liquidation engine URL configured, cannot trigger liquidation');
-      return;
-    }
-
-    const payload: LiquidationTriggerRequest = {
-      escrow,
-      positionData: {
-        collateralAmount: positionData.collateralAmount.toString(),
-        debtAmount: positionData.debtAmount.toString(),
-        debtEpoch: positionData.debtEpoch.toString(),
-        totalDebt: totalDebt.toString(),
-      },
-      healthFactor: healthFactor.toString(),
-      collateralPrice,
-      debtPrice,
-    };
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (this.config.liquidationApiKey) {
-        headers['X-API-Key'] = this.config.liquidationApiKey;
-      }
-
-      const response = await fetch(`${this.config.liquidationEngineUrl}/trigger-liquidation`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        this.logger.error(
-          { status: response.status, error: errorText, escrow: escrow.address },
-          'Failed to trigger liquidation'
-        );
-        return;
-      }
-
-      const result = await response.json();
-      this.logger.info(
-        { escrow: escrow.address, result },
-        'Liquidation triggered successfully'
-      );
-    } catch (error) {
-      this.logger.error({ error, escrow: escrow.address }, 'Error triggering liquidation');
-    }
   }
 
   /**
@@ -553,13 +497,10 @@ export class NoteSyncService {
     positionData: PositionData,
     totalDebt: bigint
   ): CollateralPosition {
-    // Convert bigint amounts to number (with proper scaling)
-    // Assuming 18 decimals for token amounts
     const WAD = 10n ** 18n;
     const collateralAmount = Number(positionData.collateralAmount) / Number(WAD);
     const debtAmount = Number(totalDebt) / Number(WAD);
 
-    // Convert token addresses to symbols for consistent indexing/lookup
     const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken) ?? escrow.collateralToken;
     const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken) ?? escrow.debtToken;
 
@@ -598,7 +539,6 @@ export class NoteSyncService {
       syncInterval: this.config.syncInterval,
       aztecClientInitialized: this.aztecClient.isInitialized(),
       priceServiceConfigured: !!this.config.priceServiceUrl,
-      liquidationEngineConfigured: !!this.config.liquidationEngineUrl,
       cachedPrices: this.getCachedPrices(),
     };
   }

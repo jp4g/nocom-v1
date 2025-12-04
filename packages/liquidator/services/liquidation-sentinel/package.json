@@ -1,7 +1,7 @@
 {
-  "name": "@liquidator/liquidation-engine",
+  "name": "@liquidator/liquidation-sentinel",
   "version": "0.1.0",
-  "description": "Liquidation execution engine",
+  "description": "Liquidation sentinel - monitors escrow positions and executes liquidations",
   "main": "src/index.ts",
   "scripts": {
     "dev": "bun --watch src/index.ts",

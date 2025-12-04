@@ -26,7 +26,7 @@ COPY . .
 
 # Install all dependencies with pnpm (shamefully-hoist to flat node_modules for Node compatibility)
 ENV CI=true
-RUN pnpm install --frozen-lockfile --ignore-scripts --shamefully-hoist
+RUN pnpm install --ignore-scripts --shamefully-hoist
 
 # Expose the API port
 EXPOSE 9000

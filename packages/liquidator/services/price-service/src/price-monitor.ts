@@ -85,6 +85,81 @@ export class PriceMonitor {
   }
 
   /**
+   * Update the polling interval (in seconds)
+   */
+  setUpdateInterval(seconds: number): void {
+    const newInterval = seconds * 1000;
+    this.config.updateInterval = newInterval;
+
+    this.logger.info(
+      { seconds, intervalMs: newInterval },
+      'Update interval changed'
+    );
+
+    // Restart the interval if running
+    if (this.isRunning && this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = setInterval(() => {
+        this.runPriceCheck();
+      }, newInterval);
+    }
+  }
+
+  /**
+   * Get the current update interval in seconds
+   */
+  getUpdateInterval(): number {
+    return this.config.updateInterval / 1000;
+  }
+
+  /**
+   * Manually set the price for an asset and update on-chain
+   * @param asset The asset symbol (e.g., 'ZEC')
+   * @param price The price in USD (e.g., 1.23 for $1.23)
+   */
+  async setPrice(asset: string, price: number): Promise<{ success: boolean; txHash?: string; error?: string }> {
+    const symbol = asset.toUpperCase();
+
+    this.logger.info({ asset: symbol, price }, 'Manually setting price');
+
+    // Get token address from deployments
+    const assetAddress = this.aztecClient.getTokenAddress(symbol);
+    if (!assetAddress) {
+      return { success: false, error: `No token address found for asset: ${symbol}` };
+    }
+
+    // Update local storage
+    this.storage.updatePrice({ asset: symbol, price, timestamp: Date.now() });
+
+    // Update on-chain
+    const onChainPrice = OracleClient.priceToOnChain(price);
+    const result = await this.oracleClient.updatePrices([
+      { asset: symbol, assetAddress, price: onChainPrice },
+    ]);
+
+    if (result.success) {
+      // Update local state
+      this.storage.setLastUpdateTime(symbol, Date.now());
+      this.storage.setPreviousOnChainPrice(symbol, price);
+
+      this.logger.info(
+        { asset: symbol, price, txHash: result.txHash },
+        'Price set successfully (on-chain updated)'
+      );
+
+      // Notify note-monitor/sentinel
+      await this.notifyNoteMonitor(symbol, price);
+    } else {
+      this.logger.error(
+        { asset: symbol, price, error: result.error },
+        'Failed to set price on-chain'
+      );
+    }
+
+    return result;
+  }
+
+  /**
    * Run a single price check cycle
    */
   private async runPriceCheck(): Promise<void> {

@@ -38,9 +38,15 @@ export interface RegisteredEscrow {
   contract: NocomEscrowV1Contract | NocomStableEscrowV1Contract;
 }
 
+export interface PositionData {
+  collateralAmount: bigint;
+  debtAmount: bigint;
+  debtEpoch: bigint;
+}
+
 /**
- * Aztec client for the Liquidation Engine
- * Manages escrow contracts for executing liquidations
+ * Unified Aztec client for the Liquidation Sentinel
+ * Handles both monitoring (position syncing) and execution (liquidations)
  */
 export class AztecClient {
   private logger: Logger;
@@ -53,12 +59,18 @@ export class AztecClient {
   private debtPools: Map<string, NocomLendingPoolV1Contract> = new Map();
   private stablePools: Map<string, NocomStablePoolV1Contract> = new Map();
 
-  // Token contract mappings (by address)
+  // Token contract mappings (for liquidation authwits)
   private tokenContracts: Map<string, TokenContract> = new Map();
-  // Token address lookup by symbol
-  private tokenAddressBySymbol: Map<string, string> = new Map();
 
-  // Escrow contract tracking - populated as liquidation requests come in
+  // Token address <-> symbol mappings
+  private tokenAddressToSymbol: Map<string, string> = new Map();
+  private tokenSymbolToAddress: Map<string, string> = new Map();
+
+  // Escrow contract arrays
+  private lendingEscrows: NocomEscrowV1Contract[] = [];
+  private stableEscrows: NocomStableEscrowV1Contract[] = [];
+
+  // Quick lookup for registered escrows
   private registeredEscrows: Map<string, RegisteredEscrow> = new Map();
 
   constructor(config: AztecClientConfig, logger: Logger) {
@@ -67,7 +79,7 @@ export class AztecClient {
   }
 
   /**
-   * Initialize the Aztec client - connects to node, sets up wallet, registers pools
+   * Initialize the Aztec client - connects to node, sets up wallet, registers pools and tokens
    */
   async initialize(): Promise<void> {
     if (this.initialized) {
@@ -100,7 +112,7 @@ export class AztecClient {
       // Register pool contracts
       await this.initializePoolContracts();
 
-      // Register token contracts
+      // Register token contracts (for liquidation authwits)
       await this.initializeTokenContracts();
 
       this.initialized = true;
@@ -167,7 +179,8 @@ export class AztecClient {
       'USDC'
     );
     this.tokenContracts.set(usdcToken.address.toString(), usdcToken);
-    this.tokenAddressBySymbol.set('USDC', deployments.usdc.address);
+    this.tokenAddressToSymbol.set(deployments.usdc.address, 'USDC');
+    this.tokenSymbolToAddress.set('USDC', deployments.usdc.address);
 
     // Register ZEC token
     const zecToken = await this.registerToken(
@@ -176,7 +189,8 @@ export class AztecClient {
       'ZEC'
     );
     this.tokenContracts.set(zecToken.address.toString(), zecToken);
-    this.tokenAddressBySymbol.set('ZEC', deployments.zcash.address);
+    this.tokenAddressToSymbol.set(deployments.zcash.address, 'ZEC');
+    this.tokenSymbolToAddress.set('ZEC', deployments.zcash.address);
 
     // Register zUSD token (stablecoin)
     const zusdToken = await this.registerToken(
@@ -185,10 +199,11 @@ export class AztecClient {
       'ZUSD'
     );
     this.tokenContracts.set(zusdToken.address.toString(), zusdToken);
-    this.tokenAddressBySymbol.set('ZUSD', deployments.zusd.address);
+    this.tokenAddressToSymbol.set(deployments.zusd.address, 'ZUSD');
+    this.tokenSymbolToAddress.set('ZUSD', deployments.zusd.address);
 
     this.logger.info(
-      { tokens: Array.from(this.tokenAddressBySymbol.entries()) },
+      { tokens: Array.from(this.tokenAddressToSymbol.entries()) },
       'Token contracts registered'
     );
   }
@@ -251,10 +266,9 @@ export class AztecClient {
   }
 
   /**
-   * Register an escrow contract (called when liquidation request comes in)
-   * Returns the escrow if already registered, otherwise registers it
+   * Register an escrow contract with instance and secret key
    */
-  async ensureEscrowRegistered(
+  async registerEscrow(
     address: string,
     type: EscrowType,
     instanceJson: string,
@@ -271,7 +285,7 @@ export class AztecClient {
       return existing;
     }
 
-    this.logger.info({ address, type }, 'Registering escrow contract for liquidation');
+    this.logger.info({ address, type }, 'Registering escrow contract');
 
     const instance = ContractInstanceWithAddressSchema.parse(JSON.parse(instanceJson));
     const escrowAddress = AztecAddress.fromString(address);
@@ -282,9 +296,11 @@ export class AztecClient {
     if (type === 'lending') {
       await this.wallet.registerContract(instance, NocomEscrowV1ContractArtifact, secret);
       contract = await NocomEscrowV1Contract.at(escrowAddress, this.wallet);
+      this.lendingEscrows.push(contract);
     } else {
       await this.wallet.registerContract(instance, NocomStableEscrowV1ContractArtifact, secret);
       contract = await NocomStableEscrowV1Contract.at(escrowAddress, this.wallet);
+      this.stableEscrows.push(contract);
     }
 
     const registeredEscrow: RegisteredEscrow = {
@@ -294,9 +310,79 @@ export class AztecClient {
     };
 
     this.registeredEscrows.set(address, registeredEscrow);
-    this.logger.info({ address, type }, 'Escrow contract registered for liquidation');
+    this.logger.info({ address, type }, 'Escrow contract registered');
 
     return registeredEscrow;
+  }
+
+  /**
+   * Sync private state for an escrow
+   */
+  async syncEscrowPrivateState(address: string): Promise<void> {
+    const escrow = this.registeredEscrows.get(address);
+    if (!escrow) {
+      throw new Error(`Escrow not registered: ${address}`);
+    }
+
+    this.logger.debug({ address }, 'Syncing escrow private state');
+
+    try {
+      await escrow.contract.methods.sync_private_state().simulate();
+      this.logger.debug({ address }, 'Escrow private state synced');
+    } catch (error) {
+      this.logger.error({ error, address }, 'Failed to sync escrow private state');
+      throw error;
+    }
+  }
+
+  /**
+   * Get position data (collateral and debt) for an escrow from its pool
+   */
+  async getPositionData(escrowAddress: string, poolAddress: string, type: EscrowType): Promise<PositionData> {
+    if (!this.adminAddress) {
+      throw new Error('Admin address not initialized');
+    }
+
+    const escrowAztecAddress = AztecAddress.fromString(escrowAddress);
+
+    this.logger.debug({ escrowAddress, poolAddress, type }, 'Fetching position data');
+
+    try {
+      let result: [{ amount: bigint }, { amount: bigint; epoch: bigint }];
+
+      if (type === 'lending') {
+        const pool = this.debtPools.get(poolAddress);
+        if (!pool) {
+          throw new Error(`Debt pool not found: ${poolAddress}`);
+        }
+        result = await pool.methods
+          .get_collateral_and_debt(escrowAztecAddress)
+          .simulate({ from: this.adminAddress });
+      } else {
+        const pool = this.stablePools.get(poolAddress);
+        if (!pool) {
+          throw new Error(`Stable pool not found: ${poolAddress}`);
+        }
+        result = await pool.methods
+          .get_collateral_and_debt(escrowAztecAddress)
+          .simulate({ from: this.adminAddress });
+      }
+
+      const [collateralNote, debtNote] = result;
+
+      const positionData: PositionData = {
+        collateralAmount: collateralNote.amount,
+        debtAmount: debtNote.amount,
+        debtEpoch: debtNote.epoch,
+      };
+
+      this.logger.debug({ escrowAddress, positionData }, 'Position data fetched');
+
+      return positionData;
+    } catch (error) {
+      this.logger.error({ error, escrowAddress, poolAddress }, 'Failed to fetch position data');
+      throw error;
+    }
   }
 
   /**
@@ -328,6 +414,20 @@ export class AztecClient {
   }
 
   /**
+   * Get token symbol from address
+   */
+  getTokenSymbol(address: string): string | undefined {
+    return this.tokenAddressToSymbol.get(address);
+  }
+
+  /**
+   * Get token address from symbol
+   */
+  getTokenAddress(symbol: string): string | undefined {
+    return this.tokenSymbolToAddress.get(symbol.toUpperCase());
+  }
+
+  /**
    * Get token contract by address
    */
   getTokenContract(address: string): TokenContract | undefined {
@@ -338,9 +438,37 @@ export class AztecClient {
    * Get token contract by symbol (USDC, ZEC, ZUSD)
    */
   getTokenContractBySymbol(symbol: string): TokenContract | undefined {
-    const address = this.tokenAddressBySymbol.get(symbol.toUpperCase());
+    const address = this.tokenSymbolToAddress.get(symbol.toUpperCase());
     if (!address) return undefined;
     return this.tokenContracts.get(address);
+  }
+
+  /**
+   * Get all debt pools
+   */
+  getAllDebtPools(): Map<string, NocomLendingPoolV1Contract> {
+    return this.debtPools;
+  }
+
+  /**
+   * Get all stable pools
+   */
+  getAllStablePools(): Map<string, NocomStablePoolV1Contract> {
+    return this.stablePools;
+  }
+
+  /**
+   * Get all lending escrows
+   */
+  getLendingEscrows(): NocomEscrowV1Contract[] {
+    return this.lendingEscrows;
+  }
+
+  /**
+   * Get all stable escrows
+   */
+  getStableEscrows(): NocomStableEscrowV1Contract[] {
+    return this.stableEscrows;
   }
 
   /**

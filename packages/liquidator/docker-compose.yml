@@ -3,12 +3,10 @@ version: '3.8'
 services:
   # Price Service - Public API for price tracking and updates
   price-service:
-    build:
-      context: ../..
-      dockerfile: packages/liquidator/services/price-service/Dockerfile
+    image: 0xjp4g/price-service:latest
     container_name: liquidator-price-service
     ports:
-      - "9000:9000"  # Expose to external network for public API access
+      - "9000:9000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -27,8 +25,8 @@ services:
       # Oracle contract configuration (mocked)
       - ORACLE_CONTRACT_ADDRESS=${ORACLE_CONTRACT_ADDRESS:-0x0000000000000000000000000000000000000000}
 
-      # Internal service URLs
-      - LIQUIDATION_ENGINE_URL=http://liquidation-engine:9002
+      # Internal service URLs - now points to sentinel
+      - NOTE_MONITOR_URL=http://liquidation-sentinel:9001
       - LIQUIDATION_API_KEY=${LIQUIDATION_API_KEY:-default_api_key_change_me}
 
       # API configuration
@@ -44,84 +42,45 @@ services:
       retries: 3
       start_period: 10s
 
-  # # Note Monitor Service - Internal service for position tracking
-  # note-monitor:
-  #   build:
-  #     context: ../..
-  #     dockerfile: packages/liquidator/services/note-monitor/Dockerfile
-  #   container_name: liquidator-note-monitor
-  #   ports:
-  #     - "9001:9001"  # Internal API, not exposed to external network in production
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
-  #   environment:
-  #     # Aztec Node URL (each service hosts its own PXE)
-  #     - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
+  # Liquidation Sentinel - Monitors positions and executes liquidations
+  liquidation-sentinel:
+    # build:
+    #   context: ../..
+    #   dockerfile: packages/liquidator/services/liquidation-sentinel/Dockerfile
+    image: 0xjp4g/liquidation-sentinel:latest
+    container_name: liquidator-sentinel
+    ports:
+      - "9001:9001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      # Aztec Node URL
+      - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
 
-  #     # Sync configuration
-  #     - SYNC_INTERVAL=${SYNC_INTERVAL:-60000}
+      # Price service URL for initial price fetch
+      - PRICE_SERVICE_URL=http://price-service:9000
 
-  #     # API configuration
-  #     - NOTE_MONITOR_API_PORT=9001
-  #     - LOG_LEVEL=${LOG_LEVEL:-info}
-  #   networks:
-  #     - liquidator-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test: ["CMD", "bun", "-e", "fetch('http://localhost:9001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 10s
+      # Sync configuration
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-60000}
 
-  # # Liquidation Engine - Internal service for executing liquidations
-  # liquidation-engine:
-  #   build:
-  #     context: ../..
-  #     dockerfile: packages/liquidator/services/liquidation-engine/Dockerfile
-  #   container_name: liquidator-liquidation-engine
-  #   ports:
-  #     - "9002:9002"  # Internal API, not exposed to external network in production
-  #   extra_hosts:
-  #     - "host.docker.internal:host-gateway"
-  #   environment:
-  #     # Aztec Node URL (each service hosts its own PXE)
-  #     - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
-
-  #     # Internal service URLs
-  #     - PRICE_SERVICE_URL=http://price-service:9000
-  #     - NOTE_MONITOR_URL=http://note-monitor:9001
-
-  #     # Authentication
-  #     - LIQUIDATION_API_KEY=${LIQUIDATION_API_KEY:-default_api_key_change_me}
-
-  #     # Liquidator wallet configuration
-  #     - LIQUIDATOR_PRIVATE_KEY=${LIQUIDATOR_PRIVATE_KEY:-mock_private_key}
-
-  #     # API configuration
-  #     - LIQUIDATION_ENGINE_API_PORT=9002
-  #     - LOG_LEVEL=${LOG_LEVEL:-info}
-  #   networks:
-  #     - liquidator-network
-  #   restart: unless-stopped
-  #   depends_on:
-  #     price-service:
-  #       condition: service_healthy
-  #     note-monitor:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "bun", "-e", "fetch('http://localhost:9002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
-  #     interval: 30s
-  #     timeout: 5s
-  #     retries: 3
-  #     start_period: 10s
+      # API configuration
+      - SENTINEL_API_PORT=9001
+      - PRICE_SERVICE_API_KEY=${LIQUIDATION_API_KEY:-default_api_key_change_me}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - liquidator-network
+    restart: unless-stopped
+    depends_on:
+      price-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:9001/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 networks:
   liquidator-network:
     driver: bridge
     name: liquidator-network
-
-# Volume configuration (optional, for future persistence needs)
-# volumes:
-#   price-data:
-#   position-data:

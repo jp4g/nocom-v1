@@ -98,8 +98,8 @@ async function main() {
     logger
   );
 
-  // Create API server
-  const app = createPriceServiceAPI(storage, logger);
+  // Create API server (with priceMonitor for config/price endpoints)
+  const app = createPriceServiceAPI(storage, priceMonitor, logger);
 
   // Start services
   logger.info({ config }, 'Starting Price Service');

@@ -9,12 +9,12 @@
   ],
   "scripts": {
     "dev:price": "bun --watch services/price-service/src/index.ts",
-    "dev:monitor": "bun --watch services/note-monitor/src/index.ts",
-    "dev:liquidator": "bun --watch services/liquidation-engine/src/index.ts",
-    "dev:all": "concurrently \"bun run dev:price\" \"bun run dev:monitor\" \"bun run dev:liquidator\"",
+    "dev:sentinel": "bun --watch services/liquidation-sentinel/src/index.ts",
+    "dev:all": "concurrently \"bun run dev:price\" \"bun run dev:sentinel\"",
     "build": "bun run build:shared && bun run build:services",
     "build:shared": "cd shared && bun build",
-    "build:services": "cd services/price-service && bun build && cd ../note-monitor && bun build && cd ../liquidation-engine && bun build",
+    "build:services": "cd services/price-service && bun build && cd ../liquidation-sentinel && bun build",
+    "set-zec-price": "bun scripts/set-zec-price.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\""
   },

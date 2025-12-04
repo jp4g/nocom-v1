@@ -8,21 +8,21 @@ import type {
   PriceUpdateNotification,
 } from '@liquidator/shared';
 import { HTTP_STATUS, isValidAddress } from '@liquidator/shared';
-import type { NoteMonitorStorage } from './storage';
-import type { NoteSyncService } from './note-sync';
+import type { SentinelStorage } from './storage';
+import type { SentinelSyncService } from './sentinel-sync';
 import type { Logger } from 'pino';
 
 const VALID_ESCROW_TYPES: EscrowType[] = ['lending', 'stable'];
 
-export interface NoteMonitorAPIConfig {
+export interface SentinelAPIConfig {
   priceServiceApiKey?: string; // API key for price-service to push updates
 }
 
-export function createNoteMonitorAPI(
-  storage: NoteMonitorStorage,
-  syncService: NoteSyncService,
+export function createSentinelAPI(
+  storage: SentinelStorage,
+  syncService: SentinelSyncService,
   logger: Logger,
-  config: NoteMonitorAPIConfig = {}
+  config: SentinelAPIConfig = {}
 ) {
   const app = new Hono();
 
@@ -33,7 +33,7 @@ export function createNoteMonitorAPI(
 
     return c.json({
       status: 'healthy',
-      service: 'note-monitor',
+      service: 'liquidation-sentinel',
       timestamp: Date.now(),
       ...stats,
       sync: syncStatus,
@@ -131,7 +131,7 @@ export function createNoteMonitorAPI(
       storage.registerEscrow(escrow);
       logger.info({ address, type, poolAddress }, 'Escrow registered');
 
-      // Register with sync service for monitoring (passes instance + secretKey)
+      // Register with sync service for monitoring
       syncService.registerEscrowForSync(escrow).catch((error) => {
         logger.error({ error, address }, 'Failed to register escrow for sync');
       });
