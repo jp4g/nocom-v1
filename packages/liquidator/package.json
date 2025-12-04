@@ -8,6 +8,7 @@
     "start": "bun src/index.ts",
     "health": "bun scripts/health-check.ts",
     "set-interval": "bun scripts/set-update-interval.ts",
+    "set-price": "bun scripts/set-price.ts",
     "set-zec-price": "bun scripts/set-zec-price.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\""
