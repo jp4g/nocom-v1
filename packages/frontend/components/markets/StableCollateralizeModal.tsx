@@ -139,31 +139,39 @@ export default function StableCollateralizeModal({
 
     console.log('[StableCollateralizeModal] Stable escrow deployed:', escrowAddress);
 
-    // Step 2: Call API to register escrow (still part of creating private escrow)
+    // Step 2: Call liquidator API to register escrow for monitoring
     // Keep the same message for seamless UX
-    const apiResponse = await fetch('/api/register-stable-escrow', {
+    const liquidatorApiUrl = process.env.NEXT_PUBLIC_LIQUIDATOR_API_URL || 'http://localhost:9000';
+    const instanceString = JSON.stringify(contract.instance);
+
+    const apiResponse = await fetch(`${liquidatorApiUrl}/escrows`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        escrowAddress,
-        stablePoolAddress: poolContract.address.toString(),
+        address: escrowAddress,
+        type: 'stable' as const,
+        poolAddress: poolContract.address.toString(),
+        collateralToken: collateralTokenContract.address.toString(),
+        debtToken: stableTokenAddress.toString(),
+        instance: instanceString,
         secretKey: secretKey.toString(),
       }),
     });
 
     if (!apiResponse.ok) {
-      console.warn('[StableCollateralizeModal] API registration failed, continuing anyway');
+      const errorData = await apiResponse.json().catch(() => ({}));
+      console.warn('[StableCollateralizeModal] Liquidator API registration failed:', errorData);
+      // Don't throw - continue with local storage as fallback
     } else {
-      console.log('[StableCollateralizeModal] Stable escrow registered with API');
+      console.log('[StableCollateralizeModal] Stable escrow registered with liquidator API');
     }
 
     // Step 3: Store in local storage (per-user) with secretKey and instance for re-registration on reload
     if (!userAddress) {
       throw new Error('User address not available');
     }
-    const instanceString = JSON.stringify(contract.instance);
     setStableEscrowData(userAddress.toString(), poolContract.address.toString(), escrowAddress, secretKey.toString(), instanceString);
     console.log('[StableCollateralizeModal] Stable escrow stored in local storage');
 

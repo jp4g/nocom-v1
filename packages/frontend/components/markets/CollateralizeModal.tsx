@@ -141,31 +141,39 @@ export default function CollateralizeModal({
 
     console.log('[CollateralizeModal] Escrow deployed:', escrowAddress);
 
-    // Step 2: Call API to register escrow (still part of creating private escrow)
+    // Step 2: Call liquidator API to register escrow for monitoring
     // Keep the same message for seamless UX
-    const apiResponse = await fetch('/api/register-escrow', {
+    const liquidatorApiUrl = process.env.NEXT_PUBLIC_LIQUIDATOR_API_URL || 'http://localhost:9000';
+    const instanceString = JSON.stringify(contract.instance);
+
+    const apiResponse = await fetch(`${liquidatorApiUrl}/escrows`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        escrowAddress,
-        debtPoolAddress: poolContract.address.toString(),
+        address: escrowAddress,
+        type: 'lending' as const,
+        poolAddress: poolContract.address.toString(),
+        collateralToken: collateralTokenContract.address.toString(),
+        debtToken: debtTokenAddress.toString(),
+        instance: instanceString,
         secretKey: secretKey.toString(),
       }),
     });
 
     if (!apiResponse.ok) {
-      throw new Error('Failed to register escrow with API');
+      const errorData = await apiResponse.json().catch(() => ({}));
+      console.warn('[CollateralizeModal] Liquidator API registration failed:', errorData);
+      // Don't throw - continue with local storage as fallback
+    } else {
+      console.log('[CollateralizeModal] Escrow registered with liquidator API');
     }
-
-    console.log('[CollateralizeModal] Escrow registered with API');
 
     // Step 3: Store in local storage (per-user) with secretKey and instance for re-registration on reload
     if (!userAddress) {
       throw new Error('User address not available');
     }
-    const instanceString = JSON.stringify(contract.instance);
     setEscrowData(userAddress.toString(), poolContract.address.toString(), escrowAddress, secretKey.toString(), instanceString);
     console.log('[CollateralizeModal] Escrow stored in local storage');
 
