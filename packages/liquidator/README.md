@@ -14,7 +14,7 @@ bun run deploy -p
 ```
 2. Host an ngrok tunnel to the sandbox
 ```
-ngrok http 8080 {YOUR_NGROK_STATIC_DOMAIN}
+ngrok http 8080 --domain={YOUR_NGROK_STATIC_DOMAIN}
 ```
 3. Set your .env
 ```
