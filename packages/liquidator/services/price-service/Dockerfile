@@ -2,8 +2,8 @@
 # Build context: monorepo root (packages/liquidator/../../)
 FROM oven/bun:1-debian
 
-# Install pnpm
-RUN apt-get update && apt-get install -y nodejs npm && npm install -g pnpm && rm -rf /var/lib/apt/lists/*
+# Install pnpm and debugging tools
+RUN apt-get update && apt-get install -y nodejs npm curl && npm install -g pnpm && rm -rf /var/lib/apt/lists/*
 
 # Set working directory to monorepo root
 WORKDIR /app

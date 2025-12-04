@@ -1,19 +1,16 @@
 import { pino } from 'pino';
 import { serve } from '@hono/node-server';
 import { DEFAULT_LIQUIDATION_ENGINE_PORT } from '@liquidator/shared';
-import { LiquidationChecker } from './liquidation-checker';
-import { MockLiquidationPXE } from './pxe-mock';
+import { AztecClient } from './aztec-client';
 import { createLiquidationEngineAPI } from './api';
 
 // Load environment variables
 const config = {
-  pxeUrl: process.env.LIQUIDATION_ENGINE_PXE_URL || 'http://localhost:8080',
-  priceServiceUrl: process.env.PRICE_SERVICE_URL || 'http://localhost:3000',
-  noteMonitorUrl: process.env.NOTE_MONITOR_URL || 'http://localhost:3001',
+  nodeUrl: process.env.AZTEC_NODE_URL || 'http://localhost:8080',
+  priceServiceUrl: process.env.PRICE_SERVICE_URL || 'http://price-service:3000',
+  noteMonitorUrl: process.env.NOTE_MONITOR_URL || 'http://note-monitor:3001',
   liquidationApiKey:
     process.env.LIQUIDATION_ENGINE_API_KEY || 'default_api_key_change_me',
-  liquidatorPrivateKey:
-    process.env.LIQUIDATOR_PRIVATE_KEY || 'mock_private_key',
   apiPort: parseInt(
     process.env.LIQUIDATION_ENGINE_API_PORT ||
       String(DEFAULT_LIQUIDATION_ENGINE_PORT)
@@ -34,46 +31,56 @@ const logger = pino({
   },
 });
 
-// Initialize components
-logger.info('Initializing Liquidation Engine...');
+async function main() {
+  // Initialize components
+  logger.info('Initializing Liquidation Engine...');
 
-const checker = new LiquidationChecker(logger);
-const pxeClient = new MockLiquidationPXE(
-  config.pxeUrl,
-  config.liquidatorPrivateKey,
-  logger
-);
+  // Initialize Aztec client
+  const aztecClient = new AztecClient({ nodeUrl: config.nodeUrl }, logger);
 
-// Create API server
-const app = createLiquidationEngineAPI(
-  checker,
-  pxeClient,
-  {
-    priceServiceUrl: config.priceServiceUrl,
-    noteMonitorUrl: config.noteMonitorUrl,
-    liquidationApiKey: config.liquidationApiKey,
-  },
-  logger
-);
+  try {
+    await aztecClient.initialize();
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize Aztec client - liquidations will be limited');
+    // Continue without Aztec - the service can still accept requests
+    // but won't be able to execute liquidations until the node is available
+  }
 
-// Start services
-logger.info({ config }, 'Starting Liquidation Engine');
+  // Create API server
+  const app = createLiquidationEngineAPI(
+    aztecClient,
+    {
+      priceServiceUrl: config.priceServiceUrl,
+      noteMonitorUrl: config.noteMonitorUrl,
+      liquidationApiKey: config.liquidationApiKey,
+    },
+    logger
+  );
 
-// Start the API server
-serve({
-  fetch: app.fetch,
-  port: config.apiPort,
-});
+  // Start services
+  logger.info({ config }, 'Starting Liquidation Engine');
 
-logger.info({ port: config.apiPort }, 'Liquidation Engine API server started');
+  // Start the API server
+  serve({
+    fetch: app.fetch,
+    port: config.apiPort,
+  });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('Shutting down Liquidation Engine...');
-  process.exit(0);
-});
+  logger.info({ port: config.apiPort }, 'Liquidation Engine API server started');
 
-process.on('SIGTERM', () => {
-  logger.info('Shutting down Liquidation Engine...');
-  process.exit(0);
+  // Graceful shutdown
+  process.on('SIGINT', () => {
+    logger.info('Shutting down Liquidation Engine...');
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    logger.info('Shutting down Liquidation Engine...');
+    process.exit(0);
+  });
+}
+
+main().catch((error) => {
+  console.error('Fatal error starting Liquidation Engine:', error);
+  process.exit(1);
 });

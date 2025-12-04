@@ -1,9 +1,13 @@
 import { Hono } from 'hono';
 import type { PriceUpdateNotification, LiquidationTriggerRequest, LiquidationTriggerResponse } from '@liquidator/shared';
 import { HTTP_STATUS } from '@liquidator/shared';
-import type { LiquidationChecker } from './liquidation-checker';
-import type { MockLiquidationPXE } from './pxe-mock';
+import type { AztecClient } from './aztec-client';
 import type { Logger } from 'pino';
+import { AztecAddress } from '@aztec/aztec.js/addresses';
+import type { NocomEscrowV1Contract, NocomStableEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
+// Import authwit creation helpers for liquidation
+import { privateTransferAuthwit, burnPrivateAuthwit } from '@nocom-v1/contracts/contract';
+import { PRICE_BASE } from '@nocom-v1/contracts/constants';
 
 export interface ServiceConfig {
   priceServiceUrl: string;
@@ -12,8 +16,7 @@ export interface ServiceConfig {
 }
 
 export function createLiquidationEngineAPI(
-  checker: LiquidationChecker,
-  pxeClient: MockLiquidationPXE,
+  aztecClient: AztecClient,
   config: ServiceConfig,
   logger: Logger
 ) {
@@ -25,6 +28,8 @@ export function createLiquidationEngineAPI(
       status: 'healthy',
       service: 'liquidation-engine',
       timestamp: Date.now(),
+      aztecClientInitialized: aztecClient.isInitialized(),
+      registeredEscrows: aztecClient.getAllRegisteredEscrows().length,
     });
   });
 
@@ -98,6 +103,15 @@ export function createLiquidationEngineAPI(
         'Liquidation trigger received'
       );
 
+      // Check if Aztec client is initialized
+      if (!aztecClient.isInitialized()) {
+        logger.error('Aztec client not initialized, cannot execute liquidation');
+        return c.json({
+          success: false,
+          error: 'Aztec client not initialized',
+        } as LiquidationTriggerResponse, HTTP_STATUS.INTERNAL_SERVER_ERROR);
+      }
+
       // Execute liquidation in the background
       executeLiquidation(body).catch((error) => {
         logger.error({ error, escrow: escrow.address }, 'Error executing liquidation');
@@ -121,55 +135,156 @@ export function createLiquidationEngineAPI(
    */
   async function executeLiquidation(request: LiquidationTriggerRequest): Promise<void> {
     const { escrow, positionData, collateralPrice, debtPrice } = request;
+    const startTime = Date.now();
+
+    logger.info(
+      {
+        escrow: escrow.address,
+        type: escrow.type,
+        healthFactor: request.healthFactor,
+        collateralPrice,
+        debtPrice,
+      },
+      'Starting liquidation execution'
+    );
 
     try {
-      logger.info({ escrow: escrow.address }, 'Starting liquidation execution');
+      // Ensure the escrow contract is registered with our client
+      const registeredEscrow = await aztecClient.ensureEscrowRegistered(
+        escrow.address,
+        escrow.type,
+        escrow.instance,
+        escrow.secretKey
+      );
+
+      logger.info(
+        { escrow: escrow.address, contractRegistered: true },
+        'Escrow contract ready for liquidation'
+      );
 
       // Calculate liquidation amount (50% of debt max)
       const totalDebt = BigInt(positionData.totalDebt);
-      const maxLiquidationAmount = totalDebt / 2n;
+      const repayAmount = totalDebt / 2n;
 
-      // Convert to number for the mock PXE (will be replaced with real implementation)
+      // Convert prices to on-chain format (scaled by PRICE_BASE = 10000)
+      const collateralPriceOnChain = BigInt(Math.round(collateralPrice * PRICE_BASE));
+      const debtPriceOnChain = BigInt(Math.round(debtPrice * PRICE_BASE));
+
+      // Get wallet and admin address
+      const wallet = aztecClient.getWallet();
+      const adminAddress = aztecClient.getAdminAddress();
+      const poolAddress = AztecAddress.fromString(escrow.poolAddress);
+
+      // Convert to human-readable for logging
       const WAD = 10n ** 18n;
-      const liquidationAmountNum = Number(maxLiquidationAmount) / Number(WAD);
+      const repayAmountNum = Number(repayAmount) / Number(WAD);
 
-      // Calculate collateral to seize with bonus (10%)
-      const collateralToSeize = (liquidationAmountNum * debtPrice / collateralPrice) * 1.1;
+      logger.info(
+        {
+          escrow: escrow.address,
+          repayAmount: repayAmountNum,
+          collateralPriceOnChain: collateralPriceOnChain.toString(),
+          debtPriceOnChain: debtPriceOnChain.toString(),
+        },
+        'Liquidation parameters calculated'
+      );
 
-      const params = {
-        escrowAddress: escrow.address,
-        collateralAsset: escrow.collateralToken,
-        debtAsset: escrow.debtToken,
-        liquidationAmount: liquidationAmountNum,
-        collateralToSeize,
-        expectedProfit: collateralToSeize * 0.1 * collateralPrice, // 10% bonus
-      };
+      if (escrow.type === 'lending') {
+        // For lending escrow: liquidator repays debt tokens to the pool
+        const debtTokenContract = aztecClient.getTokenContract(escrow.debtToken);
+        if (!debtTokenContract) {
+          throw new Error(`Debt token contract not found for address: ${escrow.debtToken}`);
+        }
 
-      logger.info({ params }, 'Liquidation parameters calculated');
+        logger.info(
+          { escrow: escrow.address, debtToken: escrow.debtToken },
+          'Creating authwit for debt token transfer'
+        );
 
-      // Execute using the mock PXE client (to be replaced with real Aztec client)
-      const result = await pxeClient.executeLiquidation(params);
+        // Create authwit for transferring debt tokens to the pool
+        const { authwit, nonce } = await privateTransferAuthwit(
+          wallet,
+          adminAddress,
+          debtTokenContract,
+          'transfer_private_to_public',
+          poolAddress,
+          poolAddress,
+          repayAmount
+        );
 
-      if (result.success) {
+        logger.info({ escrow: escrow.address }, 'Executing lending liquidation transaction');
+
+        // Execute liquidation on the escrow contract
+        const escrowContract = registeredEscrow.contract as NocomEscrowV1Contract;
+        const receipt = await escrowContract.methods
+          .liquidate(repayAmount, nonce, collateralPriceOnChain, debtPriceOnChain)
+          .send({ from: adminAddress, authWitnesses: [authwit] })
+          .wait();
+
+        const duration = Date.now() - startTime;
         logger.info(
           {
-            escrow: result.escrowAddress,
-            txHash: result.txHash,
-            amount: result.liquidationAmount,
+            escrow: escrow.address,
+            txHash: receipt.txHash.toString(),
+            status: receipt.status,
+            repayAmount: repayAmountNum,
+            duration,
           },
-          'Liquidation executed successfully'
+          'Lending liquidation executed successfully'
         );
       } else {
-        logger.error(
+        // For stable escrow: liquidator burns zUSD to repay debt
+        const zusdTokenContract = aztecClient.getTokenContractBySymbol('ZUSD');
+        if (!zusdTokenContract) {
+          throw new Error('ZUSD token contract not found');
+        }
+
+        logger.info(
+          { escrow: escrow.address },
+          'Creating authwit for zUSD burn'
+        );
+
+        // Create authwit for burning zUSD
+        const { authwit, nonce } = await burnPrivateAuthwit(
+          wallet,
+          adminAddress,
+          zusdTokenContract,
+          poolAddress,
+          repayAmount
+        );
+
+        logger.info({ escrow: escrow.address }, 'Executing stable liquidation transaction');
+
+        // Execute liquidation on the stable escrow contract
+        const escrowContract = registeredEscrow.contract as NocomStableEscrowV1Contract;
+        const receipt = await escrowContract.methods
+          .liquidate(repayAmount, nonce, collateralPriceOnChain)
+          .send({ from: adminAddress, authWitnesses: [authwit] })
+          .wait();
+
+        const duration = Date.now() - startTime;
+        logger.info(
           {
-            escrow: result.escrowAddress,
-            error: result.error,
+            escrow: escrow.address,
+            txHash: receipt.txHash.toString(),
+            status: receipt.status,
+            repayAmount: repayAmountNum,
+            duration,
           },
-          'Liquidation execution failed'
+          'Stable liquidation executed successfully'
         );
       }
     } catch (error) {
-      logger.error({ error, escrow: escrow.address }, 'Error in liquidation execution');
+      const duration = Date.now() - startTime;
+      logger.error(
+        {
+          error,
+          escrow: escrow.address,
+          type: escrow.type,
+          duration,
+        },
+        'Liquidation execution failed'
+      );
       throw error;
     }
   }
@@ -208,57 +323,10 @@ export function createLiquidationEngineAPI(
         'Positions fetched'
       );
 
-      // 2. Check positions for liquidation eligibility
-      const prices = new Map([[asset, assetPrice]]);
-      const { eligiblePositions, liquidationParams } =
-        checker.checkPositions(positions, prices);
-
-      if (liquidationParams.length === 0) {
-        logger.info({ asset }, 'No liquidatable positions found');
-        return;
-      }
-
-      logger.info(
-        {
-          asset,
-          liquidatableCount: liquidationParams.length,
-        },
-        'Liquidatable positions found'
-      );
-
-      // 3. Execute liquidations
-      for (const params of liquidationParams) {
-        try {
-          const result = await pxeClient.executeLiquidation(params);
-
-          if (result.success) {
-            logger.info(
-              {
-                escrow: result.escrowAddress,
-                txHash: result.txHash,
-                amount: result.liquidationAmount,
-              },
-              'Liquidation executed successfully'
-            );
-          } else {
-            logger.error(
-              {
-                escrow: result.escrowAddress,
-                error: result.error,
-              },
-              'Liquidation failed'
-            );
-          }
-        } catch (error) {
-          logger.error(
-            { error, escrow: params.escrowAddress },
-            'Error executing liquidation'
-          );
-          // Continue with other liquidations
-        }
-      }
-
-      logger.info({ asset }, 'Liquidation processing completed');
+      // Note: The note-monitor now handles health checking and sends
+      // liquidation triggers directly to us. This endpoint is mostly
+      // for backwards compatibility with the price-service notifications.
+      logger.info({ asset }, 'Liquidation processing completed (handled by note-monitor)');
     } catch (error) {
       logger.error({ error, asset }, 'Error in liquidation processing');
       throw error;
