@@ -29,11 +29,11 @@ ENV CI=true
 RUN pnpm install --frozen-lockfile --ignore-scripts --shamefully-hoist
 
 # Expose the API port
-EXPOSE 3000
+EXPOSE 9000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD bun -e "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+  CMD bun -e "fetch('http://localhost:9000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
 # Run with bun
 CMD ["bun", "run", "packages/liquidator/services/price-service/src/index.ts"]

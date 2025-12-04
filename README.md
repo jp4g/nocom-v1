@@ -1,8 +1,6 @@
 # Nocom Fi 
 No Comment Finance - encrypted money market with private collateral and loans
 
-learning-routinely-ladybird.ngrok-free.app
-
 Features:
  * Native to Aztec Network
  * Private collateral and health factor using TEE's and the Secret Escrow contract pattern
@@ -55,6 +53,7 @@ cd ../frontend
 ```
 
 ## Components
+```
 nocom-v1/
   ├── package.json                    # Root workspace config
   ├── packages/
@@ -68,7 +67,7 @@ nocom-v1/
   │       └── shared/                 # Shared types/utilities for the liquidator
   └── deps/
       └── aztec-standards/            # aztec-standards AIP20 token dependency
-
+```
 ## What Corners Were Cut
 The following is a list of all the deficiencies in the submitted codebase that I knowingly included:
 
@@ -89,3 +88,5 @@ The following is a list of all the deficiencies in the submitted codebase that I
  - The embedded wallet account creation does not hook up to an FPC, and there is no way to export the account keys to fund the account via FeeJuice, so actions are restricted to the preloaded test accounts on sandbox.
  - The stable pool and debt pool contract separation is immature and can be refined into a much more elegant pattern. The stable pool was admittedly a late afterthought to the core lending market (given the stablecoin is essentially a subset of the functionality of a lending market) and the vast majority of engineering effort went into the lending pool design itself. Still works though
  - The stable coin needs an Aave GSM style facility to guarantee any liquidity
+
+ learning-routinely-ladybird.ngrok-free.app
