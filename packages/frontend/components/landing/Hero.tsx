@@ -15,28 +15,31 @@ export default function Hero() {
         </h1>
 
         <p className="text-lg text-neutral-400 leading-relaxed mb-10 max-w-xl mx-auto">
-          Supply and borrow assets with best-in-class privacy. Nocom ("No Comment") Finance utilizes TEE's and Aztec ZK Smart Contracts to shield all of your balances and transactions.
+          Supply and borrow assets with best-in-class privacy. Earn yield on shielded assets without exposing your wallet or transactions.
         </p>
-
+              
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 w-full max-w-4xl border-y border-white/5 py-8">
           <div className="text-center">
-            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Total Market Size</div>
+            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Total Supplied</div>
             <div className="text-2xl md:text-3xl font-medium text-white font-mono tracking-tight">$842.5M</div>
           </div>
           <div className="text-center">
-            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Total Borrows</div>
+            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Total Borrowed</div>
             <div className="text-2xl md:text-3xl font-medium text-white font-mono tracking-tight">$310.2M</div>
           </div>
           <div className="text-center">
-            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Collateral TVL</div>
+            <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Total Collateral</div>
             <div className="text-2xl md:text-3xl font-medium text-indigo-400 font-mono tracking-tight">????</div>
           </div>
           <div className="text-center">
             <div className="text-xs text-neutral-500 font-mono uppercase mb-1">Protocol Yield</div>
-            <div className="text-2xl md:text-3xl font-medium text-green-400 font-mono tracking-tight">$12.4M</div>
+            <div className="text-2xl md:text-3xl font-medium text-green-400 font-mono tracking-tight">$84.4M</div>
           </div>
         </div>
       </div>
     </section>
   );
 }
+
+
+                   
