@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { dirname, join } from "path";
-import { writeFileSync } from "fs";
+import { writeFileSync, readFileSync, existsSync } from "fs";
 import { createAztecNodeClient } from "@aztec/aztec.js/node";
 import { TestWallet } from "@aztec/test-wallet/server";
 import { getInitialTestAccountsData } from "@aztec/accounts/testing";
@@ -9,17 +9,32 @@ import { TOKEN_METADATA, USDC_LIQUIDATION_THRESHOLD, USDC_LTV, ZCASH_LIQUIDATION
 import { precision } from "../ts/src/utils/index.ts";
 import { updateOraclePrice } from "../ts/src/contract/oracle.ts";
 import { ensureSponsoredFPCDeployed, getFeeJuicePortalManager, getSponsoredFPCInstance, getSponsoredPaymentMethod } from "../ts/src/fees.ts";
-import { Fr } from "@aztec/foundation/fields";
+import { Fq, Fr } from "@aztec/foundation/fields";
 import { supplyLiquidity } from "../ts/src/contract/pool.ts";
 import { borrowFromPool, depositCollateral, registerEscrowWithPool } from "../ts/src/contract/escrow.ts";
 import { initializeStablePoolContract } from "../ts/src/contract/stablePool.ts";
 import { depositStableCollateral, mintStable } from "../ts/src/contract/stableEscrow.ts";
+import { Schnorr } from "@aztec/foundation/crypto";
 
 const {
     AZTEC_NODE_URL = "http://localhost:8080",
     L1_RPC_URL = "http://localhost:8545",
     MNEMONIC = "test test test test test test test test test test test junk",
 } = process.env;
+
+function setEnvVar(envPath: string, key: string, value: string) {
+    let content = existsSync(envPath) ? readFileSync(envPath, "utf-8") : "";
+    const regex = new RegExp(`^${key}=.*$`, "m");
+    const newLine = `${key}=${value}`;
+
+    if (regex.test(content)) {
+        content = content.replace(regex, newLine);
+    } else {
+        content = content.trimEnd() + "\n" + newLine + "\n";
+    }
+
+    writeFileSync(envPath, content);
+}
 
 // Parse command line flags
 const populateDeployment = process.argv.includes("-p") || process.argv.includes("--populate");
@@ -95,6 +110,14 @@ async function main() {
     await updateOraclePrice(adminAddress, priceOracle, assetAddresses, prices);
 
     // 7. deploy the usdc -> zec lending pool contract
+    const liquidatorPrivKey = Fq.random();
+    const schnorr = new Schnorr();
+    const liquidatorPubkeyPoint = await schnorr.computePublicKey(liquidatorPrivKey); 
+    // todo: hook up actual liquidator key
+
+    if (populateDeployment) {
+        console.log("Market populated with additional liquidity and borrowing activity");
+    }
     const liquidatorPubkey = { x: 0n, y: 0n };
     const zecDebtPool = await deployIsolatedPoolContract(
         wallet,
@@ -148,6 +171,8 @@ async function main() {
         ZCASH_LIQUIDATION_THRESHOLD
     );
 
+    
+
     // 10. if population flag set, populate the market with additional accounts
     if (populateDeployment) {
         // 10b. mint tokens to the population accounts
@@ -167,7 +192,7 @@ async function main() {
             bobAddress,
             zecDebtPool,
             zcash,
-            precision(5163n),
+            precision(51630n),
         );
         await supplyLiquidity(
             wallet,
@@ -225,14 +250,15 @@ async function main() {
             bobAddress,
             zecStableEscrow,
             zcash,
-            precision(5_000n),
+            precision(10_000n),
         );
 
         // 10f. borrow against the collateral as the borrower
+        console.log("Borrowing from pools via escrows as borrower...");
         await borrowFromPool(
             bobAddress,
             zecDebtEscrow,
-            precision(4215n),
+            precision(421n),
             prices[0]!,
             prices[1]!,
         );
@@ -285,17 +311,24 @@ async function main() {
     };
     writeFileSync(deploymentFilePath, JSON.stringify(deploymentData, null, 2));
 
-    // 9. copy deployment data to frontend
+    // 12. copy deployment data to frontend
     const frontendPath = join(scriptDir, "../../frontend/lib/deployments.json");
     writeFileSync(frontendPath, JSON.stringify(deploymentData, null, 2));
 
-    // 10. log output
+    // 13. copy deployment data to liquidator
+    const liquidatorDeploymentsPath = join(scriptDir, "../../liquidator/deployments.json");
+    writeFileSync(liquidatorDeploymentsPath, JSON.stringify(deploymentData, null, 2));
+
+    // 14. write liquidator env vars
+    const liquidatorEnvPath = join(scriptDir, "../../liquidator/.env.docker");
+    setEnvVar(liquidatorEnvPath, "LIQUIDATOR_PRIVATE_KEY", liquidatorPrivKey.toString());
+    setEnvVar(liquidatorEnvPath, "ORACLE_CONTRACT_ADDRESS", priceOracle.address.toString());
+
+    // 11. log output
     console.log("===========[Nocom Contract Deployment Summary]===========");
-    if (populateDeployment) {
-        console.log("Market populated with additional liquidity and borrowing activity");
-    }
     console.log(`Wrote deployment data to ${deploymentFilePath}`);
     console.log(`Copied deployment data to frontend at ${frontendPath}`);
+    console.log(`Wrote liquidator env vars to ${liquidatorEnvPath}`);
     console.log(`NEXT_PUBLIC_USDC_CONTRACT=${usdc.address.toString()}`);
     console.log(`NEXT_PUBLIC_ZCASH_CONTRACT=${zcash.address.toString()}`);
     console.log(`NEXT_PUBLIC_ZUSD_CONTRACT=${zusd.address.toString()}`);

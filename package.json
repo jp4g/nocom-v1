@@ -2,7 +2,9 @@
   "name": "nocom-v1",
   "workspaces": {
     "packages": [
-      "packages/*"
+      "packages/*",
+      "packages/liquidator/services/*",
+      "packages/liquidator/shared"
     ]
   },
   "scripts": {

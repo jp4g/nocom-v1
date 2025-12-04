@@ -1,2 +1,4 @@
 packages:
   - 'packages/*'
+  - 'packages/liquidator/services/*'
+  - 'packages/liquidator/shared'
