@@ -9,8 +9,15 @@
     "build": "bun build src/index.ts --outdir=dist --target=bun"
   },
   "dependencies": {
+    "@aztec/accounts": "3.0.0-devnet.5",
+    "@aztec/aztec.js": "3.0.0-devnet.5",
+    "@aztec/foundation": "3.0.0-devnet.5",
+    "@aztec/stdlib": "3.0.0-devnet.5",
+    "@aztec/test-wallet": "3.0.0-devnet.5",
+    "@coingecko/coingecko-typescript": "^2.3.0",
     "@hono/node-server": "^1.13.7",
     "@liquidator/shared": "workspace:*",
+    "@nocom-v1/contracts": "workspace:*",
     "hono": "^4.6.15",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0"

@@ -4,14 +4,19 @@ services:
   # Price Service - Public API for price tracking and updates
   price-service:
     build:
-      context: ./services/price-service
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: packages/liquidator/services/price-service/Dockerfile
     container_name: liquidator-price-service
     ports:
       - "3000:3000"  # Expose to external network for public API access
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      # CoinMarketCap API Configuration
-      - CMC_API_KEY=${CMC_API_KEY:-mock_api_key}
+      # CoinGecko API Configuration
+      - COINGECKO_API_KEY=${COINGECKO_API_KEY}
+
+      # Aztec Node URL (each service hosts its own PXE)
+      - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
 
       # Price monitoring configuration
       - PRICE_UPDATE_INTERVAL=${PRICE_UPDATE_INTERVAL:-60000}
@@ -42,14 +47,16 @@ services:
   # Note Monitor Service - Internal service for position tracking
   note-monitor:
     build:
-      context: ./services/note-monitor
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/note-monitor/Dockerfile
     container_name: liquidator-note-monitor
     ports:
       - "3001:3001"  # Internal API, not exposed to external network in production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      # PXE connection configuration
-      - NOTE_MONITOR_PXE_URL=${NOTE_MONITOR_PXE_URL:-http://localhost:8080}
+      # Aztec Node URL (each service hosts its own PXE)
+      - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
 
       # Sync configuration
       - SYNC_INTERVAL=${SYNC_INTERVAL:-60000}
@@ -70,14 +77,16 @@ services:
   # Liquidation Engine - Internal service for executing liquidations
   liquidation-engine:
     build:
-      context: ./services/liquidation-engine
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: services/liquidation-engine/Dockerfile
     container_name: liquidator-liquidation-engine
     ports:
       - "3002:3002"  # Internal API, not exposed to external network in production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
-      # PXE connection configuration
-      - LIQUIDATION_ENGINE_PXE_URL=${LIQUIDATION_ENGINE_PXE_URL:-http://localhost:8080}
+      # Aztec Node URL (each service hosts its own PXE)
+      - AZTEC_NODE_URL=${AZTEC_NODE_URL:-http://host.docker.internal:8080}
 
       # Internal service URLs
       - PRICE_SERVICE_URL=http://price-service:3000
@@ -96,8 +105,10 @@ services:
       - liquidator-network
     restart: unless-stopped
     depends_on:
-      - price-service
-      - note-monitor
+      price-service:
+        condition: service_healthy
+      note-monitor:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://localhost:3002/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"]
       interval: 30s

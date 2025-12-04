@@ -1,8 +1,9 @@
 import type { Price } from '@liquidator/shared';
 import { calculatePercentageChange } from '@liquidator/shared';
 import type { AssetStorage } from './storage';
-import type { CoinMarketCapClient } from './cmc-client';
-import type { MockPriceOracle } from './oracle-mock';
+import type { CoinGeckoClient } from './coingecko-client';
+import type { AztecClient } from './aztec-client';
+import { OracleClient, type PriceUpdate } from './oracle-client';
 import type { Logger } from 'pino';
 
 export interface PriceMonitorConfig {
@@ -18,8 +19,9 @@ export interface PriceMonitorConfig {
  */
 export class PriceMonitor {
   private storage: AssetStorage;
-  private cmcClient: CoinMarketCapClient;
-  private oracle: MockPriceOracle;
+  private priceClient: CoinGeckoClient;
+  private aztecClient: AztecClient;
+  private oracleClient: OracleClient;
   private config: PriceMonitorConfig;
   private logger: Logger;
   private intervalId?: Timer;
@@ -27,14 +29,15 @@ export class PriceMonitor {
 
   constructor(
     storage: AssetStorage,
-    cmcClient: CoinMarketCapClient,
-    oracle: MockPriceOracle,
+    priceClient: CoinGeckoClient,
+    aztecClient: AztecClient,
     config: PriceMonitorConfig,
     logger: Logger
   ) {
     this.storage = storage;
-    this.cmcClient = cmcClient;
-    this.oracle = oracle;
+    this.priceClient = priceClient;
+    this.aztecClient = aztecClient;
+    this.oracleClient = new OracleClient(aztecClient, logger);
     this.config = config;
     this.logger = logger;
   }
@@ -93,17 +96,45 @@ export class PriceMonitor {
 
       this.logger.info({ assetCount: symbols.length }, 'Running price check');
 
-      // Fetch current prices from CMC
-      const prices = await this.cmcClient.fetchPrices(symbols);
+      // Fetch current prices from CoinGecko
+      const prices = await this.priceClient.fetchPrices(symbols);
 
       // Update storage with new prices
       for (const price of prices) {
         this.storage.updatePrice(price);
       }
 
-      // Check each asset for update conditions
-      for (const price of prices) {
-        await this.checkAndUpdatePrice(price);
+      // Collect all prices that need on-chain updates
+      const updatesNeeded = await this.collectUpdatesNeeded(prices);
+
+      if (updatesNeeded.length > 0) {
+        // Batch update on-chain prices
+        const result = await this.oracleClient.updatePrices(updatesNeeded);
+
+        if (result.success) {
+          // Update local state for all successful updates
+          for (const update of updatesNeeded) {
+            const usdPrice = OracleClient.priceFromOnChain(update.price);
+            this.storage.setLastUpdateTime(update.asset, Date.now());
+            this.storage.setPreviousOnChainPrice(update.asset, usdPrice);
+          }
+
+          this.logger.info(
+            { txHash: result.txHash, assets: updatesNeeded.map((u) => u.asset) },
+            'On-chain price update successful'
+          );
+
+          // Notify liquidation engine for each updated asset
+          for (const update of updatesNeeded) {
+            const usdPrice = OracleClient.priceFromOnChain(update.price);
+            await this.notifyLiquidationEngine(update.asset, usdPrice);
+          }
+        } else {
+          this.logger.error(
+            { error: result.error, assets: updatesNeeded.map((u) => u.asset) },
+            'On-chain price update failed'
+          );
+        }
       }
     } catch (error) {
       this.logger.error({ error }, 'Error in price check cycle');
@@ -111,95 +142,97 @@ export class PriceMonitor {
   }
 
   /**
-   * Check if a price needs to be updated on-chain
+   * Collect all prices that need on-chain updates
    */
-  private async checkAndUpdatePrice(currentPrice: Price): Promise<void> {
-    const { asset, price } = currentPrice;
+  private async collectUpdatesNeeded(prices: Price[]): Promise<PriceUpdate[]> {
+    const updates: PriceUpdate[] = [];
 
-    // Get previous on-chain price
-    let previousPrice = await this.oracle.getOnChainPrice(asset);
+    for (const currentPrice of prices) {
+      const { asset, price } = currentPrice;
 
-    // If no previous price, initialize with current price
-    if (previousPrice === undefined) {
-      this.logger.info({ asset, price }, 'No previous on-chain price, initializing');
-      this.oracle.initializePrice(asset, price);
-      this.storage.setLastUpdateTime(asset, Date.now());
-      return;
-    }
+      // Get token address from deployments
+      const assetAddress = this.aztecClient.getTokenAddress(asset);
+      if (!assetAddress) {
+        this.logger.warn({ asset }, 'No token address found for asset, skipping');
+        continue;
+      }
 
-    // Calculate percentage change
-    const percentChange = calculatePercentageChange(previousPrice, price);
-    const absChange = Math.abs(percentChange);
+      // Get previous on-chain price
+      const previousOnChainPrice = await this.oracleClient.getOnChainPrice(assetAddress);
+      const previousPrice =
+        previousOnChainPrice !== undefined
+          ? OracleClient.priceFromOnChain(previousOnChainPrice)
+          : undefined;
 
-    // Check time since last update
-    const timeSinceUpdate = this.storage.getTimeSinceLastUpdate(asset);
-    const timeThresholdExceeded =
-      timeSinceUpdate !== undefined &&
-      timeSinceUpdate >= this.config.maxUpdateInterval;
+      // If no previous price, we need to initialize
+      if (previousPrice === undefined) {
+        this.logger.info({ asset, price }, 'No previous on-chain price, will initialize');
+        updates.push({
+          asset,
+          assetAddress,
+          price: OracleClient.priceToOnChain(price),
+        });
+        continue;
+      }
 
-    // Determine if update is needed
-    const priceChangeExceeded = absChange >= this.config.priceChangeThreshold;
+      // Calculate percentage change
+      const percentChange = calculatePercentageChange(previousPrice, price);
+      const absChange = Math.abs(percentChange);
 
-    if (priceChangeExceeded || timeThresholdExceeded) {
-      const reason = priceChangeExceeded
-        ? `price change ${percentChange.toFixed(2)}%`
-        : `time threshold (${(timeSinceUpdate! / 1000).toFixed(0)}s)`;
+      // Check time since last update
+      const timeSinceUpdate = this.storage.getTimeSinceLastUpdate(asset);
+      const timeThresholdExceeded =
+        timeSinceUpdate !== undefined &&
+        timeSinceUpdate >= this.config.maxUpdateInterval;
 
-      this.logger.info(
-        { asset, previousPrice, newPrice: price, percentChange, reason },
-        'Updating on-chain price'
-      );
+      // Determine if update is needed
+      const priceChangeExceeded = absChange >= this.config.priceChangeThreshold;
 
-      // Update on-chain
-      const result = await this.oracle.updateOnChainPrice(asset, price);
-
-      if (result.success) {
-        this.storage.setLastUpdateTime(asset, Date.now());
-        this.storage.setPreviousOnChainPrice(asset, price);
+      if (priceChangeExceeded || timeThresholdExceeded) {
+        const reason = priceChangeExceeded
+          ? `price change ${percentChange.toFixed(2)}%`
+          : `time threshold (${(timeSinceUpdate! / 1000).toFixed(0)}s)`;
 
         this.logger.info(
-          { asset, price, txHash: result.txHash },
-          'On-chain price update successful'
+          { asset, previousPrice, newPrice: price, percentChange, reason },
+          'Price update needed'
         );
 
-        // Notify liquidation engine
-        await this.notifyLiquidationEngine(asset, price);
+        updates.push({
+          asset,
+          assetAddress,
+          price: OracleClient.priceToOnChain(price),
+        });
       } else {
-        this.logger.error({ asset, price }, 'On-chain price update failed');
+        this.logger.debug(
+          { asset, percentChange, timeSinceUpdate },
+          'Price update not needed'
+        );
       }
-    } else {
-      this.logger.debug(
-        { asset, percentChange, timeSinceUpdate },
-        'Price update not needed'
-      );
     }
+
+    return updates;
   }
 
   /**
    * Notify the liquidation engine of a price update
    */
-  private async notifyLiquidationEngine(
-    asset: string,
-    newPrice: number
-  ): Promise<void> {
+  private async notifyLiquidationEngine(asset: string, newPrice: number): Promise<void> {
     try {
       this.logger.info({ asset, newPrice }, 'Notifying liquidation engine');
 
-      const response = await fetch(
-        `${this.config.liquidationEngineUrl}/price-update`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-API-Key': this.config.liquidationApiKey,
-          },
-          body: JSON.stringify({
-            asset,
-            newPrice,
-            timestamp: Date.now(),
-          }),
-        }
-      );
+      const response = await fetch(`${this.config.liquidationEngineUrl}/price-update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': this.config.liquidationApiKey,
+        },
+        body: JSON.stringify({
+          asset,
+          newPrice,
+          timestamp: Date.now(),
+        }),
+      });
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -207,10 +240,7 @@ export class PriceMonitor {
 
       this.logger.info({ asset }, 'Liquidation engine notified successfully');
     } catch (error) {
-      this.logger.error(
-        { error, asset },
-        'Failed to notify liquidation engine'
-      );
+      this.logger.error({ error, asset }, 'Failed to notify liquidation engine');
       // Don't throw - this shouldn't stop the price monitoring
     }
   }

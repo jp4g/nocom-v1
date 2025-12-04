@@ -8,14 +8,14 @@ import {
   DEFAULT_PRICE_SERVICE_PORT,
 } from '@liquidator/shared';
 import { AssetStorage } from './storage';
-import { CoinMarketCapClient } from './cmc-client';
-import { MockPriceOracle } from './oracle-mock';
+import { CoinGeckoClient } from './coingecko-client';
+import { AztecClient } from './aztec-client';
 import { PriceMonitor } from './price-monitor';
 import { createPriceServiceAPI } from './api';
 
 // Load environment variables
 const config = {
-  cmcApiKey: process.env.CMC_API_KEY || 'mock_api_key',
+  coingeckoApiKey: process.env.COINGECKO_API_KEY || '',
   priceUpdateInterval: parseInt(
     process.env.PRICE_UPDATE_INTERVAL || String(DEFAULT_PRICE_UPDATE_INTERVAL)
   ),
@@ -28,9 +28,7 @@ const config = {
   maxTrackedAssets: parseInt(
     process.env.MAX_TRACKED_ASSETS || String(DEFAULT_MAX_TRACKED_ASSETS)
   ),
-  contractAddress:
-    process.env.CONTRACT_ADDRESS ||
-    '0x0000000000000000000000000000000000000000',
+  nodeUrl: process.env.AZTEC_NODE_URL || 'http://localhost:8080',
   liquidationEngineUrl:
     process.env.LIQUIDATION_ENGINE_URL || 'http://localhost:3002',
   liquidationApiKey:
@@ -54,56 +52,80 @@ const logger = pino({
   },
 });
 
-// Initialize components
-logger.info('Initializing Price Service...');
+async function main() {
+  // Initialize components
+  logger.info('Initializing Price Service...');
 
-const storage = new AssetStorage(config.maxTrackedAssets);
-const cmcClient = new CoinMarketCapClient(config.cmcApiKey, logger);
-const oracle = new MockPriceOracle(config.contractAddress, logger);
+  const storage = new AssetStorage(config.maxTrackedAssets);
 
-const priceMonitor = new PriceMonitor(
-  storage,
-  cmcClient,
-  oracle,
-  {
-    priceChangeThreshold: config.priceChangeThreshold,
-    maxUpdateInterval: config.maxUpdateInterval,
-    updateInterval: config.priceUpdateInterval,
-    liquidationEngineUrl: config.liquidationEngineUrl,
-    liquidationApiKey: config.liquidationApiKey,
-  },
-  logger
-);
+  // Add default assets
+  const defaultAssets = [
+    { symbol: 'USDC', name: 'USD Coin' },
+    { symbol: 'ZEC', name: 'Zcash' },
+  ];
+  for (const asset of defaultAssets) {
+    storage.addAsset(asset);
+    logger.info({ asset: asset.symbol }, 'Added default asset to tracking');
+  }
 
-// Create API server
-const app = createPriceServiceAPI(storage, logger);
+  const coingeckoClient = new CoinGeckoClient(config.coingeckoApiKey, logger);
 
-// Start services
-logger.info({ config }, 'Starting Price Service');
+  // Initialize Aztec client
+  const aztecClient = new AztecClient({ nodeUrl: config.nodeUrl }, logger);
 
-// Start the price monitor
-priceMonitor.start();
+  try {
+    await aztecClient.initialize();
+  } catch (error) {
+    logger.error({ error }, 'Failed to initialize Aztec client - on-chain updates will be disabled');
+    // Continue without Aztec - prices will still be fetched and cached
+  }
 
-// Start the API server
-serve({
-  fetch: app.fetch,
-  port: config.publicApiPort,
-});
+  const priceMonitor = new PriceMonitor(
+    storage,
+    coingeckoClient,
+    aztecClient,
+    {
+      priceChangeThreshold: config.priceChangeThreshold,
+      maxUpdateInterval: config.maxUpdateInterval,
+      updateInterval: config.priceUpdateInterval,
+      liquidationEngineUrl: config.liquidationEngineUrl,
+      liquidationApiKey: config.liquidationApiKey,
+    },
+    logger
+  );
 
-logger.info(
-  { port: config.publicApiPort },
-  'Price Service API server started'
-);
+  // Create API server
+  const app = createPriceServiceAPI(storage, logger);
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('Shutting down Price Service...');
-  priceMonitor.stop();
-  process.exit(0);
-});
+  // Start services
+  logger.info({ config }, 'Starting Price Service');
 
-process.on('SIGTERM', () => {
-  logger.info('Shutting down Price Service...');
-  priceMonitor.stop();
-  process.exit(0);
+  // Start the price monitor
+  priceMonitor.start();
+
+  // Start the API server
+  serve({
+    fetch: app.fetch,
+    port: config.publicApiPort,
+  });
+
+  logger.info({ port: config.publicApiPort }, 'Price Service API server started');
+
+  // Graceful shutdown
+  process.on('SIGINT', () => {
+    logger.info('Shutting down Price Service...');
+    priceMonitor.stop();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    logger.info('Shutting down Price Service...');
+    priceMonitor.stop();
+    process.exit(0);
+  });
+}
+
+main().catch((error) => {
+  console.error('Fatal error starting Price Service:', error);
+  process.exit(1);
 });

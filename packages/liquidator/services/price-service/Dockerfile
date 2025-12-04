@@ -1,28 +1,26 @@
 # Price Service Dockerfile
-FROM oven/bun:1.3.3-slim
+# Build context: monorepo root (packages/liquidator/../../)
+FROM node:22-slim
 
-# Set working directory
+# Install pnpm and tsx
+RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install -g tsx
+
+# Set working directory to monorepo root
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package.json ./
-COPY ../../shared/package.json ../../shared/
-
-# Install dependencies
-RUN bun install --frozen-lockfile
-
-# Copy shared code
-COPY ../../shared ../../shared/
-
-# Copy service source code
+# Copy the entire monorepo
 COPY . .
+
+# Install all dependencies with pnpm (shamefully-hoist to flat node_modules for Node compatibility)
+RUN pnpm install --frozen-lockfile --ignore-scripts --shamefully-hoist
 
 # Expose the API port
 EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD bun -e "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+  CMD node -e "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-# Run the service
-CMD ["bun", "src/index.ts"]
+# Run with tsx for TypeScript support
+CMD ["tsx", "packages/liquidator/services/price-service/src/index.ts"]

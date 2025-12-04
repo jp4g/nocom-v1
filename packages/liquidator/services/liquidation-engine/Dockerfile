@@ -4,18 +4,22 @@ FROM oven/bun:1.3.3-slim
 # Set working directory
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package.json ./
-COPY ../../shared/package.json ../../shared/
+# Copy workspace package files
+COPY package.json pnpm-workspace.yaml ./
+COPY shared/package.json ./shared/
+COPY services/liquidation-engine/package.json ./services/liquidation-engine/
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy shared code
-COPY ../../shared ../../shared/
+COPY shared ./shared/
 
 # Copy service source code
-COPY . .
+COPY services/liquidation-engine ./services/liquidation-engine/
+
+# Set working directory to service
+WORKDIR /app/services/liquidation-engine
 
 # Expose the API port
 EXPOSE 3002

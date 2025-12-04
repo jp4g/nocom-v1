@@ -4,18 +4,22 @@ FROM oven/bun:1.3.3-slim
 # Set working directory
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package.json ./
-COPY ../../shared/package.json ../../shared/
+# Copy workspace package files
+COPY package.json pnpm-workspace.yaml ./
+COPY shared/package.json ./shared/
+COPY services/note-monitor/package.json ./services/note-monitor/
 
 # Install dependencies
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy shared code
-COPY ../../shared ../../shared/
+COPY shared ./shared/
 
 # Copy service source code
-COPY . .
+COPY services/note-monitor ./services/note-monitor/
+
+# Set working directory to service
+WORKDIR /app/services/note-monitor
 
 # Expose the API port
 EXPOSE 3001
