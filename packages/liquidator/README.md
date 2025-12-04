@@ -4,10 +4,13 @@ Sorry this is really poorly documented I cut this down to the wire getting it wo
 
 ## How to deploy the tee
 Prerequisite - sandbox must be run
-1. Host the aztec sandbox
+1. Host the aztec sandbox and set up the network
 ```
 # IN ANOTHER TERMINAL
 aztec start --sandbox
+# IN WORKING TERMINAL (won't be blocked)
+# assumes you're in ../contracts from where this README.md is located
+bun run deploy -p
 ```
 2. Host an ngrok tunnel to the sandbox
 ```
@@ -27,7 +30,7 @@ PHALA_API_KEY= (get from phala)
 # assumes you're in ../../ from where this README.md is located
 # also you can just skip and use the deployed one at 0xjp4g/nocom-liquidator:latest
 docker login
-docker build -f packages/liquidator -t {YOUR_DOCKERHUB_USERNAME}/nocom-liquidator:latest .
+docker build --no-cache -f packages/liquidator/Dockerfile -t {YOUR_DOCKERHUB_USERNAME}/nocom-liquidator:latest .
 docker push {YOUR_DOCKERHUB_USERNAME}/nocom-liquidator:latest
 ```
 5. deploy the service to the phala tee
@@ -54,4 +57,8 @@ phala cvms list
 # in .env
 LIQUIDATOR_URL=https://{X}-9000.{Z}
 # in ../frontend/.env set the same
+```
+8. check the liquidator was deployed to the phala tee correctly
+```
+bun run health
 ```

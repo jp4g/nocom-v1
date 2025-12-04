@@ -42,9 +42,6 @@ COPY packages/liquidator/tsconfig.json packages/liquidator/
 # Copy contracts package (needed for imports)
 COPY packages/contracts/ts packages/contracts/ts/
 
-# Copy deps if needed
-COPY deps deps/
-
 # =============================================================================
 # Stage 2: Runtime - Minimal image for running the service
 # =============================================================================
@@ -69,7 +66,6 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/liquidator ./packages/liquidator
 COPY --from=builder /app/packages/contracts ./packages/contracts
-COPY --from=builder /app/deps ./deps
 
 # Expose the API port
 EXPOSE 9000

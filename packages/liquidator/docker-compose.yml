@@ -4,11 +4,11 @@ services:
   # Unified Liquidator Service
   # Combines price monitoring, position tracking, and liquidation execution
   liquidator:
-    # build:
-      # context: ../..
-      # dockerfile: packages/liquidator/Dockerfile
+    build:
+      context: ../..
+      dockerfile: packages/liquidator/Dockerfile
     # Or use a pre-built image:
-    image: 0xjp4g/nocom-liquidator:latest
+    # image: 0xjp4g/nocom-liquidator:latest
     container_name: liquidator
     ports:
       - "9000:9000"

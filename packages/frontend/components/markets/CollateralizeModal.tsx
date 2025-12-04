@@ -164,11 +164,10 @@ export default function CollateralizeModal({
 
     if (!apiResponse.ok) {
       const errorData = await apiResponse.json().catch(() => ({}));
-      console.warn('[CollateralizeModal] Liquidator API registration failed:', errorData);
-      // Don't throw - continue with local storage as fallback
-    } else {
-      console.log('[CollateralizeModal] Escrow registered with liquidator API');
+      console.error('[CollateralizeModal] Liquidator API registration failed:', errorData);
+      throw new Error(errorData.error || 'Failed to register escrow with liquidator');
     }
+    console.log('[CollateralizeModal] Escrow registered with liquidator API');
 
     // Step 3: Store in local storage (per-user) with secretKey and instance for re-registration on reload
     if (!userAddress) {

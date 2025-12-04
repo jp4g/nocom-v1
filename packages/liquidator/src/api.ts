@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import type {
   Asset,
   AddAssetRequest,
@@ -31,6 +32,20 @@ export function createLiquidatorAPI(
   logger: Logger
 ) {
   const app = new Hono();
+
+  // Enable CORS for all origins
+  app.use('*', cors({
+    origin: (origin) => origin || '*',
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    exposeHeaders: ['Content-Length'],
+    maxAge: 86400,
+  }));
+
+  // Handle preflight requests explicitly
+  app.options('*', (c) => {
+    return c.text('', 204);
+  });
 
   // ==================== Health Check ====================
 

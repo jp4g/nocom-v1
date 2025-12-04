@@ -59,10 +59,10 @@ export function isValidAssetSymbol(symbol: string): boolean {
 }
 
 /**
- * Validate ethereum-style address
+ * Validate address (supports Aztec 64-char hex addresses)
  */
 export function isValidAddress(address: string): boolean {
-  return /^0x[a-fA-F0-9]{40}$/.test(address);
+  return /^0x[a-fA-F0-9]{64}$/.test(address);
 }
 
 /**
