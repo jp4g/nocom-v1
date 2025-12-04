@@ -388,10 +388,21 @@ export class AztecClient {
       this.logger.debug({ address }, 'Syncing escrow private state');
 
       try {
-        await escrow.contract.methods.sync_private_state().simulate();
-        this.logger.debug({ address }, 'Escrow private state synced');
+        this.logger.info({ address }, 'Starting escrow private state sync');
+        await escrow.contract.methods.sync_private_state().simulate({ from: this.adminAddress! });
+        this.logger.info({ address }, 'Escrow private state synced successfully');
       } catch (error) {
-        this.logger.error({ error, address }, 'Failed to sync escrow private state');
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        this.logger.error(
+          {
+            address,
+            errorMessage,
+            errorStack,
+            errorType: error?.constructor?.name,
+          },
+          'Failed to sync escrow private state'
+        );
         throw error;
       }
     }, `syncEscrowPrivateState(${address})`);

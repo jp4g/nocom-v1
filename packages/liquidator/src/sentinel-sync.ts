@@ -10,6 +10,7 @@ import {
   USDC_LIQUIDATION_THRESHOLD,
   EPOCH_LENGTH,
   BORROW_INTEREST,
+  PRICE_BASE,
 } from '@nocom-v1/contracts/constants';
 
 export interface SentinelSyncConfig {
@@ -18,7 +19,7 @@ export interface SentinelSyncConfig {
 
 interface PriceCache {
   [symbol: string]: {
-    price: number; // USD price
+    price: bigint; // USD price scaled by PRICE_BASE (10000 = $1.00)
     updatedAt: number; // timestamp
   };
 }
@@ -115,19 +116,25 @@ export class SentinelSyncService {
 
   /**
    * Handle a price update pushed from PriceMonitor (direct callback, no HTTP)
+   * @param asset - asset symbol
+   * @param newPrice - price in USD as a float (e.g., 45.23 for $45.23)
    */
   async handlePriceUpdate(asset: string, newPrice: number): Promise<void> {
     const symbol = asset.toUpperCase();
-    const previousPrice = this.priceCache[symbol]?.price;
+    const previousPriceBigint = this.priceCache[symbol]?.price;
+    const previousPriceUSD = previousPriceBigint ? Number(previousPriceBigint) / Number(PRICE_BASE) : undefined;
+
+    // Convert float price to BigInt scaled by PRICE_BASE
+    const newPriceBigint = BigInt(Math.round(newPrice * Number(PRICE_BASE)));
 
     // Update cache
     this.priceCache[symbol] = {
-      price: newPrice,
+      price: newPriceBigint,
       updatedAt: Date.now(),
     };
 
     this.logger.info(
-      { asset: symbol, previousPrice, newPrice },
+      { asset: symbol, previousPriceUSD, newPriceUSD: newPrice, newPriceBigint: newPriceBigint.toString() },
       'Price update received'
     );
 
@@ -142,14 +149,16 @@ export class SentinelSyncService {
     const now = Date.now();
     for (const price of prices) {
       const symbol = price.asset.toUpperCase();
+      // Convert float price to BigInt scaled by PRICE_BASE
+      const priceBigint = BigInt(Math.round(price.price * Number(PRICE_BASE)));
       this.priceCache[symbol] = {
-        price: price.price,
+        price: priceBigint,
         updatedAt: now,
       };
     }
 
     this.logger.info(
-      { prices: Object.keys(this.priceCache).map(s => `${s}: $${this.priceCache[s]!.price}`) },
+      { prices: Object.keys(this.priceCache).map(s => `${s}: $${Number(this.priceCache[s]!.price) / Number(PRICE_BASE)}`) },
       'Initial prices set'
     );
   }
@@ -261,7 +270,8 @@ export class SentinelSyncService {
   getCachedPrices(): { [symbol: string]: number } {
     const prices: { [symbol: string]: number } = {};
     for (const [symbol, data] of Object.entries(this.priceCache)) {
-      prices[symbol] = data.price;
+      // Convert BigInt back to USD float for API response
+      prices[symbol] = Number(data.price) / Number(PRICE_BASE);
     }
     return prices;
   }
@@ -372,19 +382,33 @@ export class SentinelSyncService {
         this.logger.debug({ escrow: escrow.address }, 'Skipping health check - unknown token addresses');
       }
     } catch (error) {
-      this.logger.error({ error, escrowAddress: escrow.address }, 'Error syncing escrow');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(
+        {
+          escrowAddress: escrow.address,
+          poolAddress: escrow.poolAddress,
+          type: escrow.type,
+          errorMessage,
+          errorStack,
+          errorType: error?.constructor?.name,
+        },
+        'Error syncing escrow'
+      );
     }
   }
 
   /**
    * Check health factor and execute liquidation directly if needed
+   * @param collateralPrice - price as BigInt scaled by PRICE_BASE
+   * @param debtPrice - price as BigInt scaled by PRICE_BASE
    */
   private async checkHealthAndExecuteLiquidation(
     escrow: EscrowAccount,
     positionData: PositionData,
     totalDebt: bigint,
-    collateralPrice: number,
-    debtPrice: number
+    collateralPrice: bigint,
+    debtPrice: bigint
   ): Promise<void> {
     // Skip if no debt
     if (totalDebt === 0n) {
@@ -395,34 +419,40 @@ export class SentinelSyncService {
     // Determine liquidation threshold based on collateral type
     const liquidationThreshold = this.getLiquidationThreshold(escrow.collateralToken);
 
-    // Convert prices to bigint with PRICE_BASE (10000 = $1.00)
-    const collateralPriceBigint = BigInt(Math.round(collateralPrice * 10000));
-    const debtPriceBigint = BigInt(Math.round(debtPrice * 10000));
-
-    // Calculate health factor
+    // Calculate health factor (prices are already BigInt scaled by PRICE_BASE)
     const healthFactor = math.calculateLtvHealth(
-      debtPriceBigint,
+      debtPrice,
       totalDebt,
-      collateralPriceBigint,
+      collateralPrice,
       positionData.collateralAmount,
       liquidationThreshold
     );
 
-    this.logger.debug(
+    const healthFactorDecimal = Number(healthFactor) / Number(HEALTH_FACTOR_THRESHOLD);
+    const isLiquidatable = healthFactor < HEALTH_FACTOR_THRESHOLD;
+
+    // Convert prices to USD for logging
+    const collateralPriceUSD = Number(collateralPrice) / Number(PRICE_BASE);
+    const debtPriceUSD = Number(debtPrice) / Number(PRICE_BASE);
+
+    this.logger.info(
       {
         escrow: escrow.address,
         healthFactor: healthFactor.toString(),
+        healthFactorDecimal: healthFactorDecimal.toFixed(4),
         threshold: HEALTH_FACTOR_THRESHOLD.toString(),
-        collateralPrice,
-        debtPrice,
+        isLiquidatable,
+        collateralPriceUSD,
+        debtPriceUSD,
         collateralAmount: positionData.collateralAmount.toString(),
         debtAmount: totalDebt.toString(),
+        liquidationThreshold: liquidationThreshold.toString(),
       },
-      'Health factor calculated'
+      `Health check: ${healthFactorDecimal.toFixed(4)} ${isLiquidatable ? '< 1.0 - LIQUIDATABLE!' : '>= 1.0 - safe'}`
     );
 
     // Check if position is liquidatable (health factor < 1.0)
-    if (healthFactor < HEALTH_FACTOR_THRESHOLD) {
+    if (isLiquidatable) {
       this.logger.warn(
         {
           escrow: escrow.address,
@@ -432,7 +462,7 @@ export class SentinelSyncService {
         'Position is liquidatable!'
       );
 
-      // Execute liquidation directly
+      // Execute liquidation directly (pass BigInt prices)
       const result = await this.liquidationExecutor.executeLiquidation({
         escrow,
         positionData,
@@ -506,6 +536,16 @@ export class SentinelSyncService {
     }
 
     await this.syncEscrow(escrow);
+  }
+
+  /**
+   * Force sync all escrows (on-demand full scan)
+   */
+  async forceSyncAll(): Promise<{ synced: number; errors: number }> {
+    this.logger.info('Force syncing all escrows');
+    await this.runSyncCycle();
+    const escrows = this.storage.getAllEscrows();
+    return { synced: escrows.length, errors: 0 };
   }
 
   /**

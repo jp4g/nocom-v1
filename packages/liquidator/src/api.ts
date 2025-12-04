@@ -512,6 +512,28 @@ export function createLiquidatorAPI(
     });
   });
 
+  // Force sync all escrows (admin endpoint)
+  app.post('/sync', async (c) => {
+    try {
+      logger.info('Force sync all escrows requested');
+      const result = await syncService.forceSyncAll();
+      return c.json({
+        success: true,
+        message: 'All escrows synced successfully',
+        ...result,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Force sync all failed');
+      return c.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : 'Sync failed',
+        },
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+  });
+
   // Force sync specific escrow (admin endpoint)
   app.post('/sync/:escrowAddress', async (c) => {
     const escrowAddress = c.req.param('escrowAddress');

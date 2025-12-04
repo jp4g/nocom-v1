@@ -1,5 +1,6 @@
 'use client';
 
+import { useCallback } from 'react';
 import { useDataContext } from '@/contexts/DataContext';
 import AccountOverview from './AccountOverview';
 import SuppliesTable from './SuppliesTable';
@@ -7,7 +8,12 @@ import BorrowsTable from './BorrowsTable';
 import CollateralTable from './CollateralTable';
 
 export default function PortfolioContent() {
-  const { portfolioState: state, portfolioData: data, refetchPortfolio } = useDataContext();
+  const { portfolioState: state, portfolioData: data, refetchPortfolio, refetchPrices } = useDataContext();
+
+  const handleRefresh = useCallback(async () => {
+    await refetchPrices();
+    await refetchPortfolio();
+  }, [refetchPrices, refetchPortfolio]);
 
   return (
     <>
@@ -17,7 +23,7 @@ export default function PortfolioContent() {
         avgHealthFactor={data.avgHealthFactor}
         totalLoansUSD={data.totalLoansUSD}
         totalDebtUSD={data.totalDebtUSD}
-        onRefresh={refetchPortfolio}
+        onRefresh={handleRefresh}
       />
 
       {/* Dashboard Grid */}

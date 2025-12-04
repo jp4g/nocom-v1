@@ -12,8 +12,8 @@ export interface LiquidationRequest {
   positionData: PositionData;
   totalDebt: bigint;
   healthFactor: bigint;
-  collateralPrice: number;
-  debtPrice: number;
+  collateralPrice: bigint; // scaled by PRICE_BASE
+  debtPrice: bigint; // scaled by PRICE_BASE
 }
 
 export interface LiquidationResult {
@@ -44,13 +44,17 @@ export class LiquidationExecutor {
     const { escrow, positionData, totalDebt, collateralPrice, debtPrice } = request;
     const startTime = Date.now();
 
+    // Convert prices to USD for logging
+    const collateralPriceUSD = Number(collateralPrice) / Number(PRICE_BASE);
+    const debtPriceUSD = Number(debtPrice) / Number(PRICE_BASE);
+
     this.logger.info(
       {
         escrow: escrow.address,
         type: escrow.type,
         healthFactor: request.healthFactor.toString(),
-        collateralPrice,
-        debtPrice,
+        collateralPriceUSD,
+        debtPriceUSD,
       },
       'Starting liquidation execution'
     );
@@ -70,12 +74,12 @@ export class LiquidationExecutor {
           'Escrow contract ready for liquidation'
         );
 
-        // Calculate liquidation amount (50% of debt max)
-        const repayAmount = totalDebt / 2n;
+        // Calculate liquidation amount (49% of debt)
+        const repayAmount = (totalDebt * 49n) / 100n;
 
-        // Convert prices to on-chain format (scaled by PRICE_BASE = 10000)
-        const collateralPriceOnChain = BigInt(Math.round(collateralPrice * PRICE_BASE));
-        const debtPriceOnChain = BigInt(Math.round(debtPrice * PRICE_BASE));
+        // Prices are already BigInt scaled by PRICE_BASE
+        const collateralPriceOnChain = collateralPrice;
+        const debtPriceOnChain = debtPrice;
 
         // Get wallet and admin address
         const wallet = this.aztecClient.getWallet();

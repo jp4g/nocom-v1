@@ -187,13 +187,22 @@ export class PriceMonitor {
       // Fetch current prices from CoinGecko
       const prices = await this.priceClient.fetchPrices(symbols);
 
+      this.logger.info({ fetchedCount: prices.length, prices: prices.map(p => `${p.asset}=$${p.price}`) }, 'Prices fetched from CoinGecko');
+
       // Update storage with new prices
       for (const price of prices) {
         this.storage.updatePrice(price);
       }
 
+      // Notify sync service of ALL fetched prices (for health check cache)
+      for (const price of prices) {
+        await this.notifyPriceUpdate(price.asset, price.price);
+      }
+
       // Collect all prices that need on-chain updates
       const updatesNeeded = await this.collectUpdatesNeeded(prices);
+
+      this.logger.info({ updatesNeededCount: updatesNeeded.length, assets: updatesNeeded.map(u => u.asset) }, 'Collected updates needed');
 
       if (updatesNeeded.length > 0) {
         // Batch update on-chain prices
@@ -211,12 +220,7 @@ export class PriceMonitor {
             { txHash: result.txHash, assets: updatesNeeded.map((u) => u.asset) },
             'On-chain price update successful'
           );
-
-          // Notify sync service directly for each updated asset
-          for (const update of updatesNeeded) {
-            const usdPrice = OracleClient.priceFromOnChain(update.price);
-            await this.notifyPriceUpdate(update.asset, usdPrice);
-          }
+          // Note: sync service already notified above with all fetched prices
         } else {
           this.logger.error(
             { error: result.error, assets: updatesNeeded.map((u) => u.asset) },
