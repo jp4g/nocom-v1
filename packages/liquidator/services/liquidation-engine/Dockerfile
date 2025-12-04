@@ -1,5 +1,18 @@
 # Liquidation Engine Dockerfile
-FROM oven/bun:1.3.3-slim
+# Using Debian Trixie (testing) slim for GLIBCXX_3.4.32 support required by @aztec/native
+FROM debian:trixie-slim
+
+# Install dependencies: Node.js, Bun, and tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    ca-certificates \
+    && curl -fsSL https://bun.sh/install | bash \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add bun to PATH
+ENV PATH="/root/.bun/bin:${PATH}"
 
 # Set working directory
 WORKDIR /app

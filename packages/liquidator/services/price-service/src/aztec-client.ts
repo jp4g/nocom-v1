@@ -43,16 +43,28 @@ export class AztecClient {
 
     try {
       // Create node client
+      this.logger.info('[DEBUG] Creating Aztec node client...');
       const node = createAztecNodeClient(this.config.nodeUrl);
+      this.logger.info('[DEBUG] Node client created, testing connection...');
+
+      // Test the connection first
+      const nodeInfo = await node.getNodeInfo();
+      this.logger.info({ nodeInfo }, '[DEBUG] Got node info, connection works!');
 
       // Create wallet and admin account (same as deploy script)
+      this.logger.info('[DEBUG] Creating TestWallet...');
       this.wallet = await TestWallet.create(node);
+      this.logger.info('[DEBUG] TestWallet created!');
+
+      this.logger.info('[DEBUG] Getting initial test accounts data...');
       const [adminAccount] = await getInitialTestAccountsData();
       if (!adminAccount) {
         throw new Error('No admin account found in initial test accounts data');
       }
+      this.logger.info('[DEBUG] Got admin account, creating Schnorr account...');
 
       await this.wallet.createSchnorrAccount(adminAccount.secret, adminAccount.salt);
+      this.logger.info('[DEBUG] Schnorr account created, getting accounts...');
       const accounts = await this.wallet.getAccounts();
       this.adminAddress = accounts[0]!.item;
 
@@ -67,7 +79,14 @@ export class AztecClient {
       this.initialized = true;
       this.logger.info('Aztec client initialized successfully');
     } catch (error) {
-      this.logger.error({ error }, 'Failed to initialize Aztec client');
+      const err = error as Error;
+      this.logger.error({
+        message: err?.message,
+        stack: err?.stack,
+        name: err?.name,
+        cause: err?.cause,
+        raw: String(error)
+      }, 'Failed to initialize Aztec client');
       throw error;
     }
   }

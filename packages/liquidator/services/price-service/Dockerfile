@@ -1,9 +1,22 @@
 # Price Service Dockerfile
 # Build context: monorepo root (packages/liquidator/../../)
-FROM oven/bun:1-debian
+# Using Debian Trixie (testing) slim for GLIBCXX_3.4.32 support required by @aztec/native
+FROM debian:trixie-slim
 
-# Install pnpm and debugging tools
-RUN apt-get update && apt-get install -y nodejs npm curl && npm install -g pnpm && rm -rf /var/lib/apt/lists/*
+# Install dependencies: Node.js, Bun, pnpm, and tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    ca-certificates \
+    nodejs \
+    npm \
+    && npm install -g pnpm \
+    && curl -fsSL https://bun.sh/install | bash \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add bun to PATH
+ENV PATH="/root/.bun/bin:${PATH}"
 
 # Set working directory to monorepo root
 WORKDIR /app

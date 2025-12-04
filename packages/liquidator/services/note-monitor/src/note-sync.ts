@@ -188,10 +188,15 @@ export class NoteSyncService {
     }
 
     const escrows = this.storage.getAllEscrows();
-    const affectedEscrows = escrows.filter(
-      e => e.collateralToken.toUpperCase() === changedAsset ||
-           e.debtToken.toUpperCase() === changedAsset
-    );
+    const changedSymbol = changedAsset.toUpperCase();
+
+    // Filter escrows where the collateral or debt token matches the changed asset
+    // We need to convert token addresses to symbols for comparison
+    const affectedEscrows = escrows.filter(e => {
+      const collateralSymbol = this.aztecClient.getTokenSymbol(e.collateralToken);
+      const debtSymbol = this.aztecClient.getTokenSymbol(e.debtToken);
+      return collateralSymbol === changedSymbol || debtSymbol === changedSymbol;
+    });
 
     if (affectedEscrows.length === 0) {
       this.logger.debug({ asset: changedAsset }, 'No escrows affected by price change');
@@ -216,13 +221,25 @@ export class NoteSyncService {
    * Check health for a single escrow using cached prices
    */
   private async checkEscrowHealth(escrow: EscrowAccount): Promise<void> {
-    // Get cached prices
-    const collateralPriceData = this.priceCache[escrow.collateralToken.toUpperCase()];
-    const debtPriceData = this.priceCache[escrow.debtToken.toUpperCase()];
+    // Convert token addresses to symbols for price lookup
+    const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken);
+    const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken);
+
+    if (!collateralSymbol || !debtSymbol) {
+      this.logger.warn(
+        { escrow: escrow.address, collateralToken: escrow.collateralToken, debtToken: escrow.debtToken },
+        'Unknown token address - cannot map to symbol'
+      );
+      return;
+    }
+
+    // Get cached prices using symbols
+    const collateralPriceData = this.priceCache[collateralSymbol];
+    const debtPriceData = this.priceCache[debtSymbol];
 
     if (!collateralPriceData || !debtPriceData) {
       this.logger.warn(
-        { escrow: escrow.address, collateralToken: escrow.collateralToken, debtToken: escrow.debtToken },
+        { escrow: escrow.address, collateralSymbol, debtSymbol },
         'Missing cached price for health check'
       );
       return;
@@ -363,19 +380,27 @@ export class NoteSyncService {
       );
 
       // Check health factor using cached prices
-      const collateralPriceData = this.priceCache[escrow.collateralToken.toUpperCase()];
-      const debtPriceData = this.priceCache[escrow.debtToken.toUpperCase()];
+      // Convert token addresses to symbols for price lookup
+      const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken);
+      const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken);
 
-      if (collateralPriceData && debtPriceData) {
-        await this.checkHealthAndTriggerLiquidation(
-          escrow,
-          positionData,
-          totalDebt,
-          collateralPriceData.price,
-          debtPriceData.price
-        );
+      if (collateralSymbol && debtSymbol) {
+        const collateralPriceData = this.priceCache[collateralSymbol];
+        const debtPriceData = this.priceCache[debtSymbol];
+
+        if (collateralPriceData && debtPriceData) {
+          await this.checkHealthAndTriggerLiquidation(
+            escrow,
+            positionData,
+            totalDebt,
+            collateralPriceData.price,
+            debtPriceData.price
+          );
+        } else {
+          this.logger.debug({ escrow: escrow.address, collateralSymbol, debtSymbol }, 'Skipping health check - prices not cached');
+        }
       } else {
-        this.logger.debug({ escrow: escrow.address }, 'Skipping health check - prices not cached');
+        this.logger.debug({ escrow: escrow.address }, 'Skipping health check - unknown token addresses');
       }
     } catch (error) {
       this.logger.error({ error, escrowAddress: escrow.address }, 'Error syncing escrow');
@@ -445,11 +470,12 @@ export class NoteSyncService {
   }
 
   /**
-   * Get the liquidation threshold for a given collateral token
+   * Get the liquidation threshold for a given collateral token address
    */
-  private getLiquidationThreshold(collateralToken: string): bigint {
-    const token = collateralToken.toUpperCase();
-    if (token === 'ZEC' || token === 'ZCASH') {
+  private getLiquidationThreshold(collateralTokenAddress: string): bigint {
+    // Convert token address to symbol for threshold lookup
+    const symbol = this.aztecClient.getTokenSymbol(collateralTokenAddress);
+    if (symbol === 'ZEC') {
       return ZCASH_LIQUIDATION_THRESHOLD;
     }
     // Default to USDC threshold for USDC and other tokens
@@ -533,11 +559,15 @@ export class NoteSyncService {
     const collateralAmount = Number(positionData.collateralAmount) / Number(WAD);
     const debtAmount = Number(totalDebt) / Number(WAD);
 
+    // Convert token addresses to symbols for consistent indexing/lookup
+    const collateralSymbol = this.aztecClient.getTokenSymbol(escrow.collateralToken) ?? escrow.collateralToken;
+    const debtSymbol = this.aztecClient.getTokenSymbol(escrow.debtToken) ?? escrow.debtToken;
+
     return {
       escrowAddress: escrow.address,
-      collateralAsset: escrow.collateralToken,
+      collateralAsset: collateralSymbol,
       collateralAmount,
-      debtAsset: escrow.debtToken,
+      debtAsset: debtSymbol,
       debtAmount,
       poolId: escrow.poolAddress,
       lastUpdated: Date.now(),

@@ -57,6 +57,10 @@ export class AztecClient {
   private debtPools: Map<string, NocomLendingPoolV1Contract> = new Map();
   private stablePools: Map<string, NocomStablePoolV1Contract> = new Map();
 
+  // Token address to symbol mapping (for price lookups)
+  private tokenAddressToSymbol: Map<string, string> = new Map();
+  private tokenSymbolToAddress: Map<string, string> = new Map();
+
   // Escrow contract arrays
   private lendingEscrows: NocomEscrowV1Contract[] = [];
   private stableEscrows: NocomStableEscrowV1Contract[] = [];
@@ -102,6 +106,9 @@ export class AztecClient {
 
       // Register pool contracts
       await this.initializePoolContracts();
+
+      // Initialize token address mappings
+      this.initializeTokenMappings();
 
       this.initialized = true;
       this.logger.info('Aztec client initialized successfully');
@@ -149,6 +156,28 @@ export class AztecClient {
         stablePools: Array.from(this.stablePools.keys()),
       },
       'Pool contracts registered'
+    );
+  }
+
+  /**
+   * Initialize token address to symbol mappings from deployments
+   */
+  private initializeTokenMappings(): void {
+    // USDC token
+    this.tokenAddressToSymbol.set(deployments.usdc.address, 'USDC');
+    this.tokenSymbolToAddress.set('USDC', deployments.usdc.address);
+
+    // ZEC/Zcash token
+    this.tokenAddressToSymbol.set(deployments.zcash.address, 'ZEC');
+    this.tokenSymbolToAddress.set('ZEC', deployments.zcash.address);
+
+    // zUSD stablecoin
+    this.tokenAddressToSymbol.set(deployments.zusd.address, 'ZUSD');
+    this.tokenSymbolToAddress.set('ZUSD', deployments.zusd.address);
+
+    this.logger.info(
+      { tokenMappings: Array.from(this.tokenAddressToSymbol.entries()) },
+      'Token address mappings initialized'
     );
   }
 
@@ -337,6 +366,20 @@ export class AztecClient {
    */
   getStablePool(address: string): NocomStablePoolV1Contract | undefined {
     return this.stablePools.get(address);
+  }
+
+  /**
+   * Get token symbol from address
+   */
+  getTokenSymbol(address: string): string | undefined {
+    return this.tokenAddressToSymbol.get(address);
+  }
+
+  /**
+   * Get token address from symbol
+   */
+  getTokenAddress(symbol: string): string | undefined {
+    return this.tokenSymbolToAddress.get(symbol.toUpperCase());
   }
 
   /**
