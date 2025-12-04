@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { PriceUpdateNotification } from '@liquidator/shared';
+import type { PriceUpdateNotification, LiquidationTriggerRequest, LiquidationTriggerResponse } from '@liquidator/shared';
 import { HTTP_STATUS } from '@liquidator/shared';
 import type { LiquidationChecker } from './liquidation-checker';
 import type { MockLiquidationPXE } from './pxe-mock';
@@ -67,6 +67,112 @@ export function createLiquidationEngineAPI(
       );
     }
   });
+
+  // Liquidation trigger endpoint (from note-monitor when health factor is low)
+  app.post('/trigger-liquidation', async (c) => {
+    try {
+      // Check authentication
+      const apiKey = c.req.header('X-API-Key');
+
+      if (!apiKey || apiKey !== config.liquidationApiKey) {
+        logger.warn('Unauthorized liquidation trigger attempt');
+        return c.json(
+          { success: false, error: 'Unauthorized' } as LiquidationTriggerResponse,
+          HTTP_STATUS.UNAUTHORIZED
+        );
+      }
+
+      const body: LiquidationTriggerRequest = await c.req.json();
+      const { escrow, positionData, healthFactor, collateralPrice, debtPrice } = body;
+
+      logger.info(
+        {
+          escrowAddress: escrow.address,
+          escrowType: escrow.type,
+          healthFactor,
+          collateralPrice,
+          debtPrice,
+          collateralAmount: positionData.collateralAmount,
+          totalDebt: positionData.totalDebt,
+        },
+        'Liquidation trigger received'
+      );
+
+      // Execute liquidation in the background
+      executeLiquidation(body).catch((error) => {
+        logger.error({ error, escrow: escrow.address }, 'Error executing liquidation');
+      });
+
+      return c.json({
+        success: true,
+        message: `Liquidation queued for escrow ${escrow.address}`,
+      } as LiquidationTriggerResponse);
+    } catch (error) {
+      logger.error({ error }, 'Error handling liquidation trigger');
+      return c.json(
+        { success: false, error: 'Internal server error' } as LiquidationTriggerResponse,
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+  });
+
+  /**
+   * Execute a liquidation based on the trigger request
+   */
+  async function executeLiquidation(request: LiquidationTriggerRequest): Promise<void> {
+    const { escrow, positionData, collateralPrice, debtPrice } = request;
+
+    try {
+      logger.info({ escrow: escrow.address }, 'Starting liquidation execution');
+
+      // Calculate liquidation amount (50% of debt max)
+      const totalDebt = BigInt(positionData.totalDebt);
+      const maxLiquidationAmount = totalDebt / 2n;
+
+      // Convert to number for the mock PXE (will be replaced with real implementation)
+      const WAD = 10n ** 18n;
+      const liquidationAmountNum = Number(maxLiquidationAmount) / Number(WAD);
+
+      // Calculate collateral to seize with bonus (10%)
+      const collateralToSeize = (liquidationAmountNum * debtPrice / collateralPrice) * 1.1;
+
+      const params = {
+        escrowAddress: escrow.address,
+        collateralAsset: escrow.collateralToken,
+        debtAsset: escrow.debtToken,
+        liquidationAmount: liquidationAmountNum,
+        collateralToSeize,
+        expectedProfit: collateralToSeize * 0.1 * collateralPrice, // 10% bonus
+      };
+
+      logger.info({ params }, 'Liquidation parameters calculated');
+
+      // Execute using the mock PXE client (to be replaced with real Aztec client)
+      const result = await pxeClient.executeLiquidation(params);
+
+      if (result.success) {
+        logger.info(
+          {
+            escrow: result.escrowAddress,
+            txHash: result.txHash,
+            amount: result.liquidationAmount,
+          },
+          'Liquidation executed successfully'
+        );
+      } else {
+        logger.error(
+          {
+            escrow: result.escrowAddress,
+            error: result.error,
+          },
+          'Liquidation execution failed'
+        );
+      }
+    } catch (error) {
+      logger.error({ error, escrow: escrow.address }, 'Error in liquidation execution');
+      throw error;
+    }
+  }
 
   /**
    * Process liquidations for a specific collateral asset

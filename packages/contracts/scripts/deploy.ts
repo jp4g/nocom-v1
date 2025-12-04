@@ -320,7 +320,7 @@ async function main() {
     writeFileSync(liquidatorDeploymentsPath, JSON.stringify(deploymentData, null, 2));
 
     // 14. write liquidator env vars
-    const liquidatorEnvPath = join(scriptDir, "../../liquidator/.env.docker");
+    const liquidatorEnvPath = join(scriptDir, "../../liquidator/.env");
     setEnvVar(liquidatorEnvPath, "LIQUIDATOR_PRIVATE_KEY", liquidatorPrivKey.toString());
     setEnvVar(liquidatorEnvPath, "ORACLE_CONTRACT_ADDRESS", priceOracle.address.toString());
 

@@ -12,6 +12,8 @@ export interface PriceMonitorConfig {
   updateInterval: number; // milliseconds (60 seconds)
   liquidationEngineUrl: string;
   liquidationApiKey: string;
+  noteMonitorUrl?: string; // URL to push price updates to note-monitor
+  noteMonitorApiKey?: string; // API key for note-monitor
 }
 
 /**
@@ -124,9 +126,12 @@ export class PriceMonitor {
             'On-chain price update successful'
           );
 
-          // Notify liquidation engine for each updated asset
+          // Notify note-monitor and liquidation engine for each updated asset
           for (const update of updatesNeeded) {
             const usdPrice = OracleClient.priceFromOnChain(update.price);
+            // Notify note-monitor first (it will check health and trigger liquidations if needed)
+            await this.notifyNoteMonitor(update.asset, usdPrice);
+            // Also notify liquidation engine directly for any positions it's tracking
             await this.notifyLiquidationEngine(update.asset, usdPrice);
           }
         } else {
@@ -212,6 +217,47 @@ export class PriceMonitor {
     }
 
     return updates;
+  }
+
+  /**
+   * Notify the note-monitor of a price update (pushes to its cache)
+   */
+  private async notifyNoteMonitor(asset: string, newPrice: number): Promise<void> {
+    if (!this.config.noteMonitorUrl) {
+      this.logger.debug('No note-monitor URL configured, skipping notification');
+      return;
+    }
+
+    try {
+      this.logger.info({ asset, newPrice }, 'Notifying note-monitor');
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (this.config.noteMonitorApiKey) {
+        headers['X-API-Key'] = this.config.noteMonitorApiKey;
+      }
+
+      const response = await fetch(`${this.config.noteMonitorUrl}/price-update`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          asset,
+          newPrice,
+          timestamp: Date.now(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      this.logger.info({ asset }, 'Note-monitor notified successfully');
+    } catch (error) {
+      this.logger.error({ error, asset }, 'Failed to notify note-monitor');
+      // Don't throw - this shouldn't stop the price monitoring
+    }
   }
 
   /**

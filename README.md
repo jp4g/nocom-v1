@@ -19,7 +19,7 @@ Features:
 
 Note: this project was started with bun and [encountered an unpatched issue with monorepos](https://github.com/oven-sh/bun/issues/22846) so we have to use pnpm for installation. Not pretty but its a hackathon
 
-### Installation Steps
+### Installation/ Run Steps
 The following are steps to run run and populate the full stack Nocom.Fi sandbox environment
 ```
 # 1. clone the repository
@@ -55,8 +55,19 @@ cd ../frontend
 ```
 
 ## Components
-
-
+nocom-v1/
+  ├── package.json                    # Root workspace config
+  ├── packages/
+  │   ├── contracts/                  # Aztec contracts & ts bindings package
+  │   ├── frontend/                   # Nocom front end application
+  │   └── liquidator/                 # Liquidator service package
+  │       ├── services/
+  │       │   ├── liquidation-engine/ # Liquidation execution service
+  │       │   ├── note-monitor/       # Collateral escrow  monitoring service
+  │       │   └── price-service/      # Price oracle service
+  │       └── shared/                 # Shared types/utilities for the liquidator
+  └── deps/
+      └── aztec-standards/            # aztec-standards AIP20 token dependency
 
 ## What Corners Were Cut
 The following is a list of all the deficiencies in the submitted codebase that I knowingly included:

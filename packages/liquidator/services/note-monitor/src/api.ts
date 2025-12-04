@@ -1,20 +1,28 @@
 import { Hono } from 'hono';
 import type {
   EscrowAccount,
+  EscrowType,
   RegisterEscrowRequest,
   RegisterEscrowResponse,
-  GetPositionsRequest,
   GetPositionsResponse,
+  PriceUpdateNotification,
 } from '@liquidator/shared';
 import { HTTP_STATUS, isValidAddress } from '@liquidator/shared';
 import type { NoteMonitorStorage } from './storage';
 import type { NoteSyncService } from './note-sync';
 import type { Logger } from 'pino';
 
+const VALID_ESCROW_TYPES: EscrowType[] = ['lending', 'stable'];
+
+export interface NoteMonitorAPIConfig {
+  priceServiceApiKey?: string; // API key for price-service to push updates
+}
+
 export function createNoteMonitorAPI(
   storage: NoteMonitorStorage,
   syncService: NoteSyncService,
-  logger: Logger
+  logger: Logger,
+  config: NoteMonitorAPIConfig = {}
 ) {
   const app = new Hono();
 
@@ -36,13 +44,66 @@ export function createNoteMonitorAPI(
   app.post('/escrows', async (c) => {
     try {
       const body: RegisterEscrowRequest = await c.req.json();
-      const { address } = body;
+      const { address, type, poolAddress, collateralToken, debtToken, instance, secretKey } = body;
 
       // Validate address
       if (!address || !isValidAddress(address)) {
         const response: RegisterEscrowResponse = {
           success: false,
-          error: 'Invalid escrow address format. Must be a valid Ethereum address.',
+          error: 'Invalid escrow address format.',
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Validate type
+      if (!type || !VALID_ESCROW_TYPES.includes(type)) {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: `Invalid escrow type. Must be one of: ${VALID_ESCROW_TYPES.join(', ')}`,
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Validate pool address
+      if (!poolAddress || !isValidAddress(poolAddress)) {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: 'Invalid pool address format.',
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Validate token addresses
+      if (!collateralToken || !isValidAddress(collateralToken)) {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: 'Invalid collateral token address format.',
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      if (!debtToken || !isValidAddress(debtToken)) {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: 'Invalid debt token address format.',
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Validate instance JSON
+      if (!instance || typeof instance !== 'string') {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: 'Missing or invalid contract instance JSON.',
+        };
+        return c.json(response, HTTP_STATUS.BAD_REQUEST);
+      }
+
+      // Validate secret key
+      if (!secretKey || typeof secretKey !== 'string') {
+        const response: RegisterEscrowResponse = {
+          success: false,
+          error: 'Missing or invalid secret key.',
         };
         return c.json(response, HTTP_STATUS.BAD_REQUEST);
       }
@@ -58,15 +119,21 @@ export function createNoteMonitorAPI(
 
       const escrow: EscrowAccount = {
         address,
+        type,
+        poolAddress,
+        collateralToken,
+        debtToken,
+        instance,
+        secretKey,
         registeredAt: Date.now(),
       };
 
       storage.registerEscrow(escrow);
-      logger.info({ escrow }, 'Escrow registered');
+      logger.info({ address, type, poolAddress }, 'Escrow registered');
 
-      // Trigger immediate sync for this escrow
-      syncService.forceSyncEscrow(address).catch((error) => {
-        logger.error({ error, address }, 'Failed to force sync new escrow');
+      // Register with sync service for monitoring (passes instance + secretKey)
+      syncService.registerEscrowForSync(escrow).catch((error) => {
+        logger.error({ error, address }, 'Failed to register escrow for sync');
       });
 
       const response: RegisterEscrowResponse = {
@@ -211,6 +278,67 @@ export function createNoteMonitorAPI(
         HTTP_STATUS.INTERNAL_SERVER_ERROR
       );
     }
+  });
+
+  // Price update endpoint (called by price-service when prices change)
+  app.post('/price-update', async (c) => {
+    try {
+      // Validate API key if configured
+      if (config.priceServiceApiKey) {
+        const apiKey = c.req.header('X-API-Key');
+        if (!apiKey || apiKey !== config.priceServiceApiKey) {
+          logger.warn('Unauthorized price update attempt');
+          return c.json(
+            { success: false, error: 'Unauthorized' },
+            HTTP_STATUS.UNAUTHORIZED
+          );
+        }
+      }
+
+      const body: PriceUpdateNotification = await c.req.json();
+      const { asset, newPrice } = body;
+
+      if (!asset || typeof asset !== 'string') {
+        return c.json(
+          { success: false, error: 'Invalid asset' },
+          HTTP_STATUS.BAD_REQUEST
+        );
+      }
+
+      if (typeof newPrice !== 'number' || newPrice <= 0) {
+        return c.json(
+          { success: false, error: 'Invalid price' },
+          HTTP_STATUS.BAD_REQUEST
+        );
+      }
+
+      logger.info({ asset, newPrice }, 'Price update received from price-service');
+
+      // Handle price update (updates cache and checks health for affected escrows)
+      syncService.handlePriceUpdate(asset, newPrice).catch((error) => {
+        logger.error({ error, asset }, 'Error handling price update');
+      });
+
+      return c.json({
+        success: true,
+        message: `Price update received for ${asset}`,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error processing price update');
+      return c.json(
+        { success: false, error: 'Internal server error' },
+        HTTP_STATUS.INTERNAL_SERVER_ERROR
+      );
+    }
+  });
+
+  // Get cached prices
+  app.get('/prices', (c) => {
+    const prices = syncService.getCachedPrices();
+    return c.json({
+      prices,
+      timestamp: Date.now(),
+    });
   });
 
   return app;

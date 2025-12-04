@@ -1,10 +1,9 @@
 # Price Service Dockerfile
 # Build context: monorepo root (packages/liquidator/../../)
-FROM node:22-slim
+FROM oven/bun:1-debian
 
-# Install pnpm and tsx
-RUN corepack enable && corepack prepare pnpm@latest --activate
-RUN npm install -g tsx
+# Install pnpm
+RUN apt-get update && apt-get install -y nodejs npm && npm install -g pnpm && rm -rf /var/lib/apt/lists/*
 
 # Set working directory to monorepo root
 WORKDIR /app
@@ -21,7 +20,7 @@ EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD node -e "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
+  CMD bun -e "fetch('http://localhost:3000/health').then(r => r.ok ? process.exit(0) : process.exit(1)).catch(() => process.exit(1))"
 
-# Run with tsx for TypeScript support
-CMD ["tsx", "packages/liquidator/services/price-service/src/index.ts"]
+# Run with bun
+CMD ["bun", "run", "packages/liquidator/services/price-service/src/index.ts"]

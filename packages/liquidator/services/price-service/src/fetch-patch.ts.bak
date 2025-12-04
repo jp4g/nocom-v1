@@ -1,0 +1,20 @@
+// Patch global fetch to add ngrok header
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  const headers = new Headers(init?.headers);
+  headers.set('ngrok-skip-browser-warning', 'true');
+  return originalFetch(input, { ...init, headers });
+};
+
+// Patch undici Agent to add ngrok header (Aztec uses undici directly)
+import { Agent } from 'undici';
+const OriginalAgent = Agent;
+const originalRequest = OriginalAgent.prototype.request;
+OriginalAgent.prototype.request = function(opts: any) {
+  opts.headers = {
+    ...opts.headers,
+    'ngrok-skip-browser-warning': 'true'
+  };
+  console.log(`[undici-patch] REQUEST: ${opts.method} ${opts.origin}${opts.path}`);
+  return originalRequest.call(this, opts);
+};

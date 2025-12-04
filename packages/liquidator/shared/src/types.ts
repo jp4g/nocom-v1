@@ -20,9 +20,18 @@ export interface PriceUpdate {
   timestamp: number;
 }
 
+// Escrow Types
+export type EscrowType = 'lending' | 'stable';
+
 // Escrow and Position Types
 export interface EscrowAccount {
   address: string;
+  type: EscrowType;
+  poolAddress: string;
+  collateralToken: string;
+  debtToken: string;
+  instance: string; // JSON serialized contract instance
+  secretKey: string; // Secret key for private state access
   registeredAt: number;
 }
 
@@ -90,9 +99,7 @@ export interface GetPricesResponse {
   timestamp: number;
 }
 
-export interface RegisterEscrowRequest {
-  address: string;
-}
+export type RegisterEscrowRequest = Omit<EscrowAccount, 'registeredAt'>;
 
 export interface RegisterEscrowResponse {
   success: boolean;
@@ -153,6 +160,27 @@ export interface LiquidationEngineConfig {
 export interface AuthToken {
   apiKey: string;
   service: string;
+}
+
+// Liquidation Trigger Types (from note-monitor to liquidation-engine)
+export interface LiquidationTriggerRequest {
+  escrow: EscrowAccount;
+  positionData: {
+    collateralAmount: string; // bigint as string
+    debtAmount: string; // bigint as string
+    debtEpoch: string; // bigint as string
+    totalDebt: string; // principal + interest as string
+  };
+  healthFactor: string; // bigint as string
+  collateralPrice: number;
+  debtPrice: number;
+}
+
+export interface LiquidationTriggerResponse {
+  success: boolean;
+  message?: string;
+  txHash?: string;
+  error?: string;
 }
 
 // Error Types

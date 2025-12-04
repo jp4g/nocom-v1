@@ -26,7 +26,6 @@ export async function batchSimulateDebtPosition(
         throw new Error('Markets and escrow addresses length mismatch');
 
     // get the escrow rq
-    console.log("PLSSSSSSS")
     // Queue the simulation to prevent concurrent IndexedDB access
     const batchResult = await simulationQueue.enqueue(async () => {
         console.log('[batchSimulateDebtPosition] Starting simulation for', markets.length, 'markets');

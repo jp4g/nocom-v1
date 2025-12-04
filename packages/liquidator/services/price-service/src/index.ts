@@ -33,6 +33,8 @@ const config = {
     process.env.LIQUIDATION_ENGINE_URL || 'http://localhost:3002',
   liquidationApiKey:
     process.env.LIQUIDATION_API_KEY || 'default_api_key_change_me',
+  noteMonitorUrl: process.env.NOTE_MONITOR_URL || 'http://localhost:3001',
+  noteMonitorApiKey: process.env.NOTE_MONITOR_API_KEY || '',
   publicApiPort: parseInt(
     process.env.PUBLIC_API_PORT || String(DEFAULT_PRICE_SERVICE_PORT)
   ),
@@ -90,6 +92,8 @@ async function main() {
       updateInterval: config.priceUpdateInterval,
       liquidationEngineUrl: config.liquidationEngineUrl,
       liquidationApiKey: config.liquidationApiKey,
+      noteMonitorUrl: config.noteMonitorUrl,
+      noteMonitorApiKey: config.noteMonitorApiKey,
     },
     logger
   );
