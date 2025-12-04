@@ -50,8 +50,7 @@ tmp/
 temp/
 *.tmp
 
-# Package manager
-pnpm-lock.yaml
+# Package manager (keep pnpm-lock.yaml for deterministic builds)
 package-lock.json
 yarn.lock
 bun.lockb

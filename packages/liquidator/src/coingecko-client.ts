@@ -1,4 +1,4 @@
-import type { Price } from '@liquidator/shared';
+import type { Price } from './utils';
 import type { Logger } from 'pino';
 import Coingecko from '@coingecko/coingecko-typescript';
 

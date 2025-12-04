@@ -1,5 +1,5 @@
-import type { Price } from '@liquidator/shared';
-import { calculatePercentageChange } from '@liquidator/shared';
+import type { Price } from './utils';
+import { calculatePercentageChange } from './utils';
 import type { AssetStorage } from './storage';
 import type { CoinGeckoClient } from './coingecko-client';
 import type { AztecClient } from './aztec-client';
@@ -10,14 +10,14 @@ export interface PriceMonitorConfig {
   priceChangeThreshold: number; // percentage
   maxUpdateInterval: number; // milliseconds
   updateInterval: number; // milliseconds (60 seconds)
-  liquidationEngineUrl: string;
-  liquidationApiKey: string;
-  noteMonitorUrl?: string; // URL to push price updates to note-monitor
-  noteMonitorApiKey?: string; // API key for note-monitor
 }
+
+// Callback type for price updates - allows direct integration with sync service
+export type PriceUpdateCallback = (asset: string, newPrice: number) => Promise<void>;
 
 /**
  * Price Monitor - handles price fetching, comparison, and updates
+ * Directly notifies the sync service when prices change (no HTTP overhead)
  */
 export class PriceMonitor {
   private storage: AssetStorage;
@@ -28,6 +28,9 @@ export class PriceMonitor {
   private logger: Logger;
   private intervalId?: Timer;
   private isRunning: boolean = false;
+
+  // Direct callback for price updates (replaces HTTP calls)
+  private onPriceUpdate?: PriceUpdateCallback;
 
   constructor(
     storage: AssetStorage,
@@ -42,6 +45,14 @@ export class PriceMonitor {
     this.oracleClient = new OracleClient(aztecClient, logger);
     this.config = config;
     this.logger = logger;
+  }
+
+  /**
+   * Set the callback for price updates
+   * This replaces the HTTP notification to the sentinel service
+   */
+  setPriceUpdateCallback(callback: PriceUpdateCallback): void {
+    this.onPriceUpdate = callback;
   }
 
   /**
@@ -147,8 +158,8 @@ export class PriceMonitor {
         'Price set successfully (on-chain updated)'
       );
 
-      // Notify note-monitor/sentinel
-      await this.notifyNoteMonitor(symbol, price);
+      // Notify sync service directly (no HTTP)
+      await this.notifyPriceUpdate(symbol, price);
     } else {
       this.logger.error(
         { asset: symbol, price, error: result.error },
@@ -201,13 +212,10 @@ export class PriceMonitor {
             'On-chain price update successful'
           );
 
-          // Notify note-monitor and liquidation engine for each updated asset
+          // Notify sync service directly for each updated asset
           for (const update of updatesNeeded) {
             const usdPrice = OracleClient.priceFromOnChain(update.price);
-            // Notify note-monitor first (it will check health and trigger liquidations if needed)
-            await this.notifyNoteMonitor(update.asset, usdPrice);
-            // Also notify liquidation engine directly for any positions it's tracking
-            await this.notifyLiquidationEngine(update.asset, usdPrice);
+            await this.notifyPriceUpdate(update.asset, usdPrice);
           }
         } else {
           this.logger.error(
@@ -295,73 +303,20 @@ export class PriceMonitor {
   }
 
   /**
-   * Notify the note-monitor of a price update (pushes to its cache)
+   * Notify the sync service of a price update (direct callback, no HTTP)
    */
-  private async notifyNoteMonitor(asset: string, newPrice: number): Promise<void> {
-    if (!this.config.noteMonitorUrl) {
-      this.logger.debug('No note-monitor URL configured, skipping notification');
+  private async notifyPriceUpdate(asset: string, newPrice: number): Promise<void> {
+    if (!this.onPriceUpdate) {
+      this.logger.debug('No price update callback configured');
       return;
     }
 
     try {
-      this.logger.info({ asset, newPrice }, 'Notifying note-monitor');
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-
-      if (this.config.noteMonitorApiKey) {
-        headers['X-API-Key'] = this.config.noteMonitorApiKey;
-      }
-
-      const response = await fetch(`${this.config.noteMonitorUrl}/price-update`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          asset,
-          newPrice,
-          timestamp: Date.now(),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      this.logger.info({ asset }, 'Note-monitor notified successfully');
+      this.logger.debug({ asset, newPrice }, 'Notifying sync service of price update');
+      await this.onPriceUpdate(asset, newPrice);
+      this.logger.debug({ asset }, 'Sync service notified successfully');
     } catch (error) {
-      this.logger.error({ error, asset }, 'Failed to notify note-monitor');
-      // Don't throw - this shouldn't stop the price monitoring
-    }
-  }
-
-  /**
-   * Notify the liquidation engine of a price update
-   */
-  private async notifyLiquidationEngine(asset: string, newPrice: number): Promise<void> {
-    try {
-      this.logger.info({ asset, newPrice }, 'Notifying liquidation engine');
-
-      const response = await fetch(`${this.config.liquidationEngineUrl}/price-update`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': this.config.liquidationApiKey,
-        },
-        body: JSON.stringify({
-          asset,
-          newPrice,
-          timestamp: Date.now(),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      this.logger.info({ asset }, 'Liquidation engine notified successfully');
-    } catch (error) {
-      this.logger.error({ error, asset }, 'Failed to notify liquidation engine');
+      this.logger.error({ error, asset }, 'Failed to notify sync service');
       // Don't throw - this shouldn't stop the price monitoring
     }
   }

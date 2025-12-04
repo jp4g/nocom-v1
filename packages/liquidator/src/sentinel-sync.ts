@@ -1,7 +1,7 @@
 import type { SentinelStorage } from './storage';
 import type { AztecClient, PositionData } from './aztec-client';
 import type { LiquidationExecutor } from './liquidation-executor';
-import type { CollateralPosition, EscrowAccount, Price } from '@liquidator/shared';
+import type { CollateralPosition, EscrowAccount, Price } from './utils';
 import type { Logger } from 'pino';
 import { math } from '@nocom-v1/contracts/utils';
 import {
@@ -14,7 +14,6 @@ import {
 
 export interface SentinelSyncConfig {
   syncInterval: number; // milliseconds
-  priceServiceUrl?: string; // URL to fetch initial prices from
 }
 
 interface PriceCache {
@@ -27,6 +26,7 @@ interface PriceCache {
 /**
  * Sentinel Synchronization Service
  * Handles periodic syncing of escrow positions and executes liquidations directly
+ * Receives price updates via direct callback from PriceMonitor (no HTTP)
  */
 export class SentinelSyncService {
   private storage: SentinelStorage;
@@ -37,7 +37,7 @@ export class SentinelSyncService {
   private intervalId?: Timer;
   private isRunning: boolean = false;
 
-  // Price cache - updated via push from price-service
+  // Price cache - updated via direct callback from PriceMonitor
   private priceCache: PriceCache = {};
 
   constructor(
@@ -90,9 +90,6 @@ export class SentinelSyncService {
       'Starting sentinel sync service'
     );
 
-    // Fetch initial prices from price-service
-    await this.fetchInitialPrices();
-
     this.isRunning = true;
 
     // Run immediately then on interval
@@ -117,45 +114,7 @@ export class SentinelSyncService {
   }
 
   /**
-   * Fetch initial prices from price-service on startup
-   */
-  private async fetchInitialPrices(): Promise<void> {
-    if (!this.config.priceServiceUrl) {
-      this.logger.warn('No price service URL configured, prices must be pushed');
-      return;
-    }
-
-    try {
-      this.logger.info({ url: this.config.priceServiceUrl }, 'Fetching initial prices from price-service');
-
-      const response = await fetch(`${this.config.priceServiceUrl}/prices`);
-      if (!response.ok) {
-        this.logger.error({ status: response.status }, 'Failed to fetch initial prices');
-        return;
-      }
-
-      const data = await response.json();
-      const now = Date.now();
-
-      for (const price of data.prices as Price[]) {
-        const symbol = price.asset.toUpperCase();
-        this.priceCache[symbol] = {
-          price: price.price,
-          updatedAt: now,
-        };
-      }
-
-      this.logger.info(
-        { prices: Object.keys(this.priceCache).map(s => `${s}: $${this.priceCache[s]!.price}`) },
-        'Initial prices loaded'
-      );
-    } catch (error) {
-      this.logger.error({ error }, 'Error fetching initial prices');
-    }
-  }
-
-  /**
-   * Handle a price update pushed from price-service
+   * Handle a price update pushed from PriceMonitor (direct callback, no HTTP)
    */
   async handlePriceUpdate(asset: string, newPrice: number): Promise<void> {
     const symbol = asset.toUpperCase();
@@ -174,6 +133,25 @@ export class SentinelSyncService {
 
     // Check health for escrows affected by this price change
     await this.checkHealthForAffectedEscrows(symbol);
+  }
+
+  /**
+   * Set initial prices (called during startup)
+   */
+  setInitialPrices(prices: Price[]): void {
+    const now = Date.now();
+    for (const price of prices) {
+      const symbol = price.asset.toUpperCase();
+      this.priceCache[symbol] = {
+        price: price.price,
+        updatedAt: now,
+      };
+    }
+
+    this.logger.info(
+      { prices: Object.keys(this.priceCache).map(s => `${s}: $${this.priceCache[s]!.price}`) },
+      'Initial prices set'
+    );
   }
 
   /**
@@ -538,7 +516,6 @@ export class SentinelSyncService {
       isRunning: this.isRunning,
       syncInterval: this.config.syncInterval,
       aztecClientInitialized: this.aztecClient.isInitialized(),
-      priceServiceConfigured: !!this.config.priceServiceUrl,
       cachedPrices: this.getCachedPrices(),
     };
   }

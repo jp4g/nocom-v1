@@ -1,31 +1,33 @@
 {
   "name": "liquidator",
-  "version": "0.1.0",
-  "description": "DeFi liquidation infrastructure for monitoring prices and liquidating undercollateralized positions",
+  "version": "0.2.0",
+  "description": "Unified DeFi liquidation service - price monitoring, position tracking, and liquidation execution",
   "private": true,
-  "workspaces": [
-    "services/*",
-    "shared"
-  ],
   "scripts": {
-    "dev:price": "bun --watch services/price-service/src/index.ts",
-    "dev:sentinel": "bun --watch services/liquidation-sentinel/src/index.ts",
-    "dev:all": "concurrently \"bun run dev:price\" \"bun run dev:sentinel\"",
-    "build": "bun run build:shared && bun run build:services",
-    "build:shared": "cd shared && bun build",
-    "build:services": "cd services/price-service && bun build && cd ../liquidation-sentinel && bun build",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
     "set-zec-price": "bun scripts/set-zec-price.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.{ts,json,md}\""
   },
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "@aztec/accounts": "3.0.0-devnet.5",
+    "@aztec/aztec.js": "3.0.0-devnet.5",
+    "@aztec/foundation": "3.0.0-devnet.5",
+    "@aztec/stdlib": "3.0.0-devnet.5",
+    "@aztec/test-wallet": "3.0.0-devnet.5",
+    "@coingecko/coingecko-typescript": "^2.3.0",
+    "@hono/node-server": "^1.13.7",
+    "@nocom-v1/contracts": "workspace:*",
+    "dotenv": "^16.4.5",
+    "hono": "^4.6.15",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0"
   },
   "devDependencies": {
     "@types/bun": "latest",
     "@typescript-eslint/eslint-plugin": "^8.18.2",
     "@typescript-eslint/parser": "^8.18.2",
-    "concurrently": "^9.2.1",
     "eslint": "^9.17.0",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2"

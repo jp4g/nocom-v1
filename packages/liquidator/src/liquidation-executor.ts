@@ -1,10 +1,11 @@
 import type { Logger } from 'pino';
-import type { EscrowAccount } from '@liquidator/shared';
+import type { EscrowAccount } from './utils';
 import type { AztecClient, PositionData } from './aztec-client';
 import { AztecAddress } from '@aztec/aztec.js/addresses';
 import type { NocomEscrowV1Contract, NocomStableEscrowV1Contract } from '@nocom-v1/contracts/artifacts';
 import { privateTransferAuthwit, burnPrivateAuthwit } from '@nocom-v1/contracts/contract';
 import { PRICE_BASE } from '@nocom-v1/contracts/constants';
+import { simulationQueue } from './simulation-queue';
 
 export interface LiquidationRequest {
   escrow: EscrowAccount;
@@ -24,6 +25,7 @@ export interface LiquidationResult {
 
 /**
  * Liquidation Executor - handles the actual on-chain liquidation transactions
+ * All operations are serialized through the simulation queue
  */
 export class LiquidationExecutor {
   private aztecClient: AztecClient;
@@ -36,6 +38,7 @@ export class LiquidationExecutor {
 
   /**
    * Execute a liquidation for the given escrow
+   * Uses simulation queue to prevent concurrent transaction conflicts
    */
   async executeLiquidation(request: LiquidationRequest): Promise<LiquidationResult> {
     const { escrow, positionData, totalDebt, collateralPrice, debtPrice } = request;
@@ -52,107 +55,109 @@ export class LiquidationExecutor {
       'Starting liquidation execution'
     );
 
-    try {
-      // Ensure the escrow contract is registered
-      const registeredEscrow = await this.aztecClient.registerEscrow(
-        escrow.address,
-        escrow.type,
-        escrow.instance,
-        escrow.secretKey
-      );
-
-      this.logger.info(
-        { escrow: escrow.address, contractRegistered: true },
-        'Escrow contract ready for liquidation'
-      );
-
-      // Calculate liquidation amount (50% of debt max)
-      const repayAmount = totalDebt / 2n;
-
-      // Convert prices to on-chain format (scaled by PRICE_BASE = 10000)
-      const collateralPriceOnChain = BigInt(Math.round(collateralPrice * PRICE_BASE));
-      const debtPriceOnChain = BigInt(Math.round(debtPrice * PRICE_BASE));
-
-      // Get wallet and admin address
-      const wallet = this.aztecClient.getWallet();
-      const adminAddress = this.aztecClient.getAdminAddress();
-      const poolAddress = AztecAddress.fromString(escrow.poolAddress);
-
-      // Convert to human-readable for logging
-      const WAD = 10n ** 18n;
-      const repayAmountNum = Number(repayAmount) / Number(WAD);
-
-      this.logger.info(
-        {
-          escrow: escrow.address,
-          repayAmount: repayAmountNum,
-          collateralPriceOnChain: collateralPriceOnChain.toString(),
-          debtPriceOnChain: debtPriceOnChain.toString(),
-        },
-        'Liquidation parameters calculated'
-      );
-
-      let txHash: string;
-
-      if (escrow.type === 'lending') {
-        txHash = await this.executeLendingLiquidation(
-          escrow,
-          registeredEscrow.contract as NocomEscrowV1Contract,
-          wallet,
-          adminAddress,
-          poolAddress,
-          repayAmount,
-          collateralPriceOnChain,
-          debtPriceOnChain
+    return simulationQueue.enqueue(async () => {
+      try {
+        // Ensure the escrow contract is registered
+        const registeredEscrow = await this.aztecClient.registerEscrow(
+          escrow.address,
+          escrow.type,
+          escrow.instance,
+          escrow.secretKey
         );
-      } else {
-        txHash = await this.executeStableLiquidation(
-          escrow,
-          registeredEscrow.contract as NocomStableEscrowV1Contract,
-          wallet,
-          adminAddress,
-          poolAddress,
-          repayAmount,
-          collateralPriceOnChain
-        );
-      }
 
-      const duration = Date.now() - startTime;
-      this.logger.info(
-        {
-          escrow: escrow.address,
+        this.logger.info(
+          { escrow: escrow.address, contractRegistered: true },
+          'Escrow contract ready for liquidation'
+        );
+
+        // Calculate liquidation amount (50% of debt max)
+        const repayAmount = totalDebt / 2n;
+
+        // Convert prices to on-chain format (scaled by PRICE_BASE = 10000)
+        const collateralPriceOnChain = BigInt(Math.round(collateralPrice * PRICE_BASE));
+        const debtPriceOnChain = BigInt(Math.round(debtPrice * PRICE_BASE));
+
+        // Get wallet and admin address
+        const wallet = this.aztecClient.getWallet();
+        const adminAddress = this.aztecClient.getAdminAddress();
+        const poolAddress = AztecAddress.fromString(escrow.poolAddress);
+
+        // Convert to human-readable for logging
+        const WAD = 10n ** 18n;
+        const repayAmountNum = Number(repayAmount) / Number(WAD);
+
+        this.logger.info(
+          {
+            escrow: escrow.address,
+            repayAmount: repayAmountNum,
+            collateralPriceOnChain: collateralPriceOnChain.toString(),
+            debtPriceOnChain: debtPriceOnChain.toString(),
+          },
+          'Liquidation parameters calculated'
+        );
+
+        let txHash: string;
+
+        if (escrow.type === 'lending') {
+          txHash = await this.executeLendingLiquidation(
+            escrow,
+            registeredEscrow.contract as NocomEscrowV1Contract,
+            wallet,
+            adminAddress,
+            poolAddress,
+            repayAmount,
+            collateralPriceOnChain,
+            debtPriceOnChain
+          );
+        } else {
+          txHash = await this.executeStableLiquidation(
+            escrow,
+            registeredEscrow.contract as NocomStableEscrowV1Contract,
+            wallet,
+            adminAddress,
+            poolAddress,
+            repayAmount,
+            collateralPriceOnChain
+          );
+        }
+
+        const duration = Date.now() - startTime;
+        this.logger.info(
+          {
+            escrow: escrow.address,
+            txHash,
+            repayAmount: repayAmountNum,
+            duration,
+          },
+          'Liquidation executed successfully'
+        );
+
+        return {
+          success: true,
           txHash,
-          repayAmount: repayAmountNum,
           duration,
-        },
-        'Liquidation executed successfully'
-      );
+        };
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      return {
-        success: true,
-        txHash,
-        duration,
-      };
-    } catch (error) {
-      const duration = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        this.logger.error(
+          {
+            error,
+            escrow: escrow.address,
+            type: escrow.type,
+            duration,
+          },
+          'Liquidation execution failed'
+        );
 
-      this.logger.error(
-        {
-          error,
-          escrow: escrow.address,
-          type: escrow.type,
+        return {
+          success: false,
+          error: errorMessage,
           duration,
-        },
-        'Liquidation execution failed'
-      );
-
-      return {
-        success: false,
-        error: errorMessage,
-        duration,
-      };
-    }
+        };
+      }
+    }, `executeLiquidation(${escrow.address})`);
   }
 
   /**

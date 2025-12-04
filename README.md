@@ -59,12 +59,7 @@ nocom-v1/
   ├── packages/
   │   ├── contracts/                  # Aztec contracts & ts bindings package
   │   ├── frontend/                   # Nocom front end application
-  │   └── liquidator/                 # Liquidator service package
-  │       ├── services/
-  │       │   ├── liquidation-engine/ # Liquidation execution service
-  │       │   ├── note-monitor/       # Collateral escrow  monitoring service
-  │       │   └── price-service/      # Price oracle service
-  │       └── shared/                 # Shared types/utilities for the liquidator
+  │   └── liquidator/                 # Liquidator & price oracle service container
   └── deps/
       └── aztec-standards/            # aztec-standards AIP20 token dependency
 ```
