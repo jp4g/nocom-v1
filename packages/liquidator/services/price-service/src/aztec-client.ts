@@ -10,6 +10,14 @@ import {
 } from '@nocom-v1/contracts/artifacts';
 import deployments from '../../../deployments.json' assert { type: 'json' };
 
+// Override global fetch to add ngrok header (bypasses browser warning)
+const originalFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => {
+  const headers = new Headers(init?.headers);
+  headers.set('ngrok-skip-browser-warning', 'true');
+  return originalFetch(input, { ...init, headers });
+};
+
 export interface AztecClientConfig {
   nodeUrl: string;
 }
